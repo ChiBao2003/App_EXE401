@@ -1,0 +1,14 @@
+[
+  {
+    "version": "v1.0.0",
+    "release_date": "2026-08-01",
+    "file_url": "http://127.0.0.1:8000/static/fw/v1.0.0.bin",
+    "description": "Phiên bản Firmware đầu tiên phát hành. Đã ổn định tính năng vẽ E-ink cơ bản."
+  },
+  {
+    "version": "v1.0.1",
+    "release_date": "2026-08-15",
+    "file_url": "http://127.0.0.1:8000/static/fw/v1.0.1.bin",
+    "description": "Bản cập nhật quan trọng: Tối ưu hoá pin khi Sleep và sửa lỗi font chữ tiếng Việt."
+  }
+]

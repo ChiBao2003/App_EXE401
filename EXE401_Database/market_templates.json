@@ -1,0 +1,25 @@
+[
+  {
+    "author": "Hoàng Thịnh PRO",
+    "thumbnail_url": "assets/images/market_1.png",
+    "design_json": {
+      "elements": [
+        {"type": "time", "format": "HH:mm", "x": 10, "y": 20, "fontSize": 64},
+        {"type": "date", "format": "dd/MM/yyyy", "x": 10, "y": 100, "fontSize": 24}
+      ]
+    },
+    "likes": 1500,
+    "timestamp": "2026-08-12T08:30:00Z"
+  },
+  {
+    "author": "Bé Nấm",
+    "thumbnail_url": "assets/images/market_2.png",
+    "design_json": {
+      "elements": [
+        {"type": "time", "format": "HH:mm", "x": 50, "y": 50, "fontSize": 72, "font": "digital"}
+      ]
+    },
+    "likes": 842,
+    "timestamp": "2026-08-10T14:15:00Z"
+  }
+]

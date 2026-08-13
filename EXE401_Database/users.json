@@ -1,0 +1,16 @@
+[
+  {
+    "id": "user_1",
+    "username": "hoangthinh_pro",
+    "display_name": "Hoàng Thịnh PRO",
+    "email": "thinh@example.com",
+    "role": "creator"
+  },
+  {
+    "id": "user_2",
+    "username": "benam_cute",
+    "display_name": "Bé Nấm",
+    "email": "benam@example.com",
+    "role": "user"
+  }
+]

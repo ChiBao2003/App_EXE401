@@ -1,0 +1,23 @@
+[
+  {
+    "user_id": "DEFAULT_USER",
+    "title": "Uống thuốc buổi sáng",
+    "time": "08:00",
+    "days_of_week": [2, 3, 4, 5, 6, 7, 8],
+    "is_active": true
+  },
+  {
+    "user_id": "DEFAULT_USER",
+    "title": "Họp nhóm đồ án tốt nghiệp",
+    "time": "14:30",
+    "days_of_week": [4],
+    "is_active": true
+  },
+  {
+    "user_id": "DEFAULT_USER",
+    "title": "Đi tập Gym",
+    "time": "17:30",
+    "days_of_week": [2, 4, 6],
+    "is_active": false
+  }
+]

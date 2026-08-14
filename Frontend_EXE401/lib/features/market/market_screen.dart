@@ -487,7 +487,9 @@ class _MarketCard extends StatelessWidget {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(6),
                     child: Image.asset(
-                      item.imagePath,
+                      item.imagePath.startsWith('assets/')
+                          ? item.imagePath.replaceFirst('assets/', '')
+                          : item.imagePath,
                       fit: BoxFit.cover,
                       errorBuilder: (context, error, stackTrace) {
                         return _buildMockEinkFace(item.index);

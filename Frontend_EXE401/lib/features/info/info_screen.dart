@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
+import '../../core/constants/app_constants.dart';
 import 'dart:convert';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -269,10 +270,7 @@ class _FirmwareUpdateCardState extends State<_FirmwareUpdateCard> {
 
   Future<void> _checkFirmware() async {
     try {
-      String baseUrl = "http://127.0.0.1:8000";
-      if (!kIsWeb && Platform.isAndroid) baseUrl = "http://10.0.2.2:8000";
-
-      final response = await http.get(Uri.parse('$baseUrl/api/firmware/latest'));
+      final response = await http.get(Uri.parse('${AppConstants.baseUrl}/api/firmware/latest'));
       if (response.statusCode == 200) {
         final data = json.decode(utf8.decode(response.bodyBytes));
         if (data['version'] != null) {

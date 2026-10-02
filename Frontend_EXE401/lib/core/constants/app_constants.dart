@@ -10,19 +10,34 @@ class AppConstants {
   AppConstants._(); // Prevent instantiation
 
   // ============================================================
+  // ⚠️ CẤU HÌNH IP ĐỘNG (Dùng --dart-define=BACKEND_IP=...)
+  // ============================================================
+  static const String backendLanIp = String.fromEnvironment(
+    'BACKEND_IP', 
+    defaultValue: '10.10.132.193'
+  ); 
+  static const int backendPort = 8000;
+
+  // ============================================================
   // API Base URL - Tự động chọn đúng địa chỉ theo nền tảng
   // ============================================================
   static String get baseUrl {
     if (kIsWeb) {
-      return 'http://127.0.0.1:8000';
+      return 'http://127.0.0.1:$backendPort'; // Web: chạy cùng máy
     }
     try {
       if (Platform.isAndroid) {
-        return 'http://10.0.2.2:8000'; // Android Emulator
+        // Điện thoại thật kết nối WiFi cùng mạng LAN với máy tính
+        return 'http://$backendLanIp:$backendPort';
       }
     } catch (_) {}
-    return 'http://127.0.0.1:8000';
+    return 'http://127.0.0.1:$backendPort';
   }
+
+  // ============================================================
+  // Bluetooth SPP — Tên thiết bị ESP32 cần khớp với firmware
+  // ============================================================
+  static const String esp32DeviceName = 'ESP32_Pomodoro_Data';
 
   // ============================================================
   // API Endpoints (versioned)

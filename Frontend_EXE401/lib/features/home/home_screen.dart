@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../core/bluetooth/ble_service.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/api/auth_api.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -69,6 +70,45 @@ class HomeScreen extends StatelessWidget {
                 icon: Icons.calendar_month_rounded,
                 label: 'Lịch nhắc nhở tuần',
                 onTap: () => Navigator.pushNamed(context, '/schedule'),
+              ),
+              const SizedBox(height: 12),
+              _MenuItem(
+                color: const Color(0xFFFF6B6B),
+                icon: Icons.timer_rounded,
+                label: '⏱ Pomodoro AI',
+                onTap: () => Navigator.pushNamed(context, '/pomodoro'),
+              ),
+              const SizedBox(height: 12),
+              _MenuItem(
+                color: const Color(0xFF7C4DFF),
+                icon: Icons.psychology_rounded,
+                label: '🤖 AI Hub & Coach',
+                onTap: () => Navigator.pushNamed(context, '/ai-hub'),
+              ),
+              _MenuItem(
+                color: const Color(0xFFB2DFDB),
+                icon: Icons.favorite_rounded,
+                label: '🧠 Digital Wellbeing',
+                onTap: () => Navigator.pushNamed(context, '/wellbeing'),
+              ),
+              const SizedBox(height: 12),
+              _MenuItem(
+                color: const Color(0xFF00E5FF),
+                icon: Icons.watch_rounded,
+                label: '📺 Chế độ đồng hồ',
+                onTap: () => Navigator.pushNamed(context, '/clock_mode'),
+              ),
+              const SizedBox(height: 24),
+              _MenuItem(
+                color: const Color(0xFFE5E7EB),
+                icon: Icons.logout_rounded,
+                label: 'Đăng xuất',
+                onTap: () async {
+                  await AuthApi.logout();
+                  if (context.mounted) {
+                    Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+                  }
+                },
               ),
             ],
           ),

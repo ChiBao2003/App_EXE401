@@ -1,0 +1,664 @@
+#include <SPI.h>
+#include <Adafruit_GFX.h>
+#include <Wire.h>
+#include "RTClib.h"
+#include <MCUFRIEND_kbv.h>
+#include <TouchScreen.h>
+#include "BluetoothA2DPSink.h"
+#include <BluetoothSerial.h>
+
+// ⚠️ LƯU Ý: BluetoothSerial và A2DP dùng chung Bluetooth Controller.
+// Cả hai đều hoạt động trên Bluetooth Classic, nên tương thích tốt.
+// Không thể dùng đồng thời BLE (Bluetooth Low Energy) nếu đã dùng A2DP.
+
+// ==========================================
+// CẤU HÌNH PHẦN CỨNG 
+// ==========================================
+MCUFRIEND_kbv tft;
+RTC_DS3231 rtc;
+BluetoothA2DPSink a2dp_sink;
+BluetoothSerial SerialBT; // Kênh truyền dữ liệu sang App Flutter
+
+// Cấu hình chân Cảm ứng
+const int XP = 27, XM = 15, YP = 4, YM = 14;
+const int TS_LEFT = 920, TS_RT = 150, TS_TOP = 940, TS_BOT = 120;
+TouchScreen ts = TouchScreen(XP, YP, XM, YM, 300);
+
+// Cấu hình chân Nút bấm 
+#define BTN_MODE    34
+#define BTN_ACTION1 35
+#define BTN_ACTION2 36
+
+// Cấu hình chân Mạch Loa I2S
+#define I2S_BCLK 5
+#define I2S_LRC  18
+#define I2S_DOUT 19
+
+// Còi báo Buzzer (Chốt GPIO 23, KHUYÊN DÙNG: Nối tiếp trở 220 Ohm)
+#define BUZZER_PIN 23
+
+// Bảng màu giao diện
+#define C_BLACK      0x0000
+#define C_WHITE      0xFFFF
+#define C_DARK_GRAY  0x2104
+#define C_MID_GRAY   0x4A49
+#define C_CYAN       0x07FF
+#define C_YELLOW     0xFFE0
+#define C_ORANGE     0xFD20
+#define C_RED        0xF800
+#define C_GREEN      0x07E0
+#define C_PURPLE     0x780F
+#define C_BLUE       0x051D
+
+// ==========================================
+// QUẢN LÝ TRẠNG THÁI CHUNG
+// ==========================================
+enum AppState { MODE_CLOCK, MODE_POMODORO, MODE_TIMER, MODE_BLUETOOTH };
+const int NUM_MODES = 4;
+AppState currentState = MODE_CLOCK;
+bool stateChanged = true;
+
+unsigned long lastBtnPress = 0;
+int lastMinute = -1;
+bool isBluetoothConnected = false;
+bool lastBluetoothState = false;
+
+// ==========================================
+// BIẾN CHO HỆ THỐNG CÒI NON-BLOCKING
+// ==========================================
+int beepRemaining = 0;
+int beepOnTime = 0;
+int beepFreq = 0;
+bool isBeepOn = false;
+unsigned long lastBeepTime = 0;
+
+// ==========================================
+// POMODORO THEO PHIÊN 
+// ==========================================
+enum PomoPhase { PHASE_WORK, PHASE_BREAK, PHASE_LONG_BREAK };
+PomoPhase pomoPhase = PHASE_WORK;
+
+int pomoWorkDuration      = 25 * 60;   
+int pomoBreakDuration     = 5 * 60;    
+int pomoLongBreakDuration = 15 * 60;   
+int pomoSessionCount      = 0;         
+
+int pomoTime        = pomoWorkDuration;
+int pomoInitialTime = pomoWorkDuration;
+bool pomoRunning    = false;
+unsigned long pomoLastTick = 0;
+int lastPomoDraw = -2;
+int lastPomoSessionDraw = -2;
+PomoPhase lastPomoPhaseDraw = PHASE_WORK;
+
+// ==========================================
+// BIẾN THEO DÕI PHIÊN LÀM VIỆC (gửi sang App)
+// ==========================================
+int   pomoPauseCount       = 0;     // Số lần bấm PAUSE trong phiên
+unsigned long pomoSessionStartMs = 0; // Thời điểm bắt đầu phiên (milliseconds)
+int   pomoActualWorkSecs   = 0;     // Thời gian làm việc thực tế (giây)
+
+// ==========================================
+// ĐẾM NGƯỢC (Countdown Timer)
+// ==========================================
+const int timerPresets[] = {10, 15, 30, 60, 300, 600, 900, 1500};
+const char* timerLabels[] = {"10s", "15s", "30s", "1m", "5m", "10m", "15m", "25m"};
+const int NUM_PRESETS = 8;
+
+bool timerSelecting = true;   
+int  timerSeconds   = 0;
+int  timerInitial   = 0;
+bool timerRunning   = false;
+bool timerFinished  = false;
+unsigned long timerLastTick = 0;
+int lastTimerDraw = -2;
+
+// ==========================================
+// SETUP HỆ THỐNG
+// ==========================================
+void setup() {
+  Serial.begin(115200);
+  analogReadResolution(10);
+
+  tft.reset();
+  tft.begin(0x9341);
+  tft.setRotation(1);
+
+  Wire.begin(21, 22);
+  if (!rtc.begin()) {
+    Serial.println("Khong tim thay RTC!");
+  }
+
+  // Khởi tạo còi tắt mặc định
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW); 
+
+  i2s_config_t i2s_config = {
+      .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
+      .sample_rate = 44100,
+      .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
+      .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
+      .communication_format = I2S_COMM_FORMAT_STAND_I2S,
+      .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
+      .dma_buf_count = 8,
+      .dma_buf_len = 256,
+      .use_apll = true,
+      .tx_desc_auto_clear = true,
+      .fixed_mclk = 0
+  };
+  a2dp_sink.set_i2s_config(i2s_config);
+
+  i2s_pin_config_t my_pin_config = {
+      .bck_io_num = I2S_BCLK,
+      .ws_io_num = I2S_LRC,
+      .data_out_num = I2S_DOUT,
+      .data_in_num = I2S_PIN_NO_CHANGE
+  };
+  a2dp_sink.set_pin_config(my_pin_config);
+  a2dp_sink.set_auto_reconnect(true);
+  a2dp_sink.set_volume(75);
+  a2dp_sink.start("ESP32_Pomodoro_Speaker");
+
+  // Khởi động BluetoothSerial để truyền dữ liệu sang App Flutter
+  // App Flutter sẽ tìm thiết bị Bluetooth có tên "ESP32_Pomodoro_Data"
+  SerialBT.begin("ESP32_Pomodoro_Data");
+  Serial.println("[BT-Data] SerialBT started. Waiting for Flutter app to connect...");
+
+  pinMode(BTN_MODE, INPUT);
+  pinMode(BTN_ACTION1, INPUT);
+  pinMode(BTN_ACTION2, INPUT);
+}
+
+// ==========================================
+// VÒNG LẶP CHÍNH
+// ==========================================
+void loop() {
+  handleBuzzer(); // Xử lý còi đa luồng, không block
+  handleButtons();
+  handleTouch();
+
+  switch (currentState) {
+    case MODE_CLOCK:     runClockMode();     break;
+    case MODE_POMODORO:  runPomodoroMode();  break;
+    case MODE_TIMER:     runTimerMode();     break;
+    case MODE_BLUETOOTH: runBluetoothMode(); break;
+  }
+}
+
+// ==========================================
+// HÀM XỬ LÝ CÒI NON-BLOCKING (ĐÃ CHUẨN HÓA 128)
+// ==========================================
+void startBeep(int times, int onMs, int freq) {
+  if (times <= 0) return;
+  beepRemaining = times;
+  beepOnTime = onMs;
+  beepFreq = freq;
+  isBeepOn = true;
+  lastBeepTime = millis();
+  
+  // Bật PWM (Dùng 128 tương đương 50% duty cycle)
+  #if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+    ledcAttach(BUZZER_PIN, beepFreq, 8);
+    ledcWrite(BUZZER_PIN, 128);
+  #else
+    ledcSetup(1, beepFreq, 8);
+    ledcAttachPin(BUZZER_PIN, 1);
+    ledcWrite(1, 128);
+  #endif
+}
+
+void handleBuzzer() {
+  if (beepRemaining <= 0) return; // Không có lệnh kêu thì bỏ qua
+
+  unsigned long currentMillis = millis();
+  int interval = isBeepOn ? beepOnTime : 80; // 80ms là thời gian tắt giữa các tiếng bíp
+
+  if (currentMillis - lastBeepTime >= interval) {
+    lastBeepTime = currentMillis;
+    
+    if (isBeepOn) {
+      // Đang kêu -> Tắt đi
+      isBeepOn = false;
+      #if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+        ledcWrite(BUZZER_PIN, 0);
+        ledcDetach(BUZZER_PIN);
+        pinMode(BUZZER_PIN, OUTPUT);
+        digitalWrite(BUZZER_PIN, LOW);
+      #else
+ledcWrite(1, 0);
+      #endif
+      beepRemaining--; // Xong 1 nhịp
+    } else {
+      // Đang tắt -> Bật lên cho nhịp tiếp theo (nếu còn)
+      if (beepRemaining > 0) {
+        isBeepOn = true;
+        #if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+          ledcAttach(BUZZER_PIN, beepFreq, 8);
+          ledcWrite(BUZZER_PIN, 128);
+        #else
+          ledcWrite(1, 128);
+        #endif
+      }
+    }
+  }
+}
+
+// ==========================================
+// HÀM ĐIỀU KHIỂN NÚT BẤM
+// ==========================================
+void handleButtons() {
+  bool currentBTStatus = a2dp_sink.is_connected();
+  if (currentBTStatus != isBluetoothConnected) {
+    isBluetoothConnected = currentBTStatus;
+    if (currentState == MODE_BLUETOOTH) stateChanged = true;
+  }
+
+  if (millis() - lastBtnPress > 300) {
+    if (digitalRead(BTN_MODE) == LOW) {
+      currentState = (AppState)((currentState + 1) % NUM_MODES);
+      stateChanged = true;
+      lastBtnPress = millis();
+    }
+
+    if (digitalRead(BTN_ACTION1) == LOW) {
+      if (currentState == MODE_POMODORO) {
+        if (!pomoRunning) {
+          // Bắt đầu / Resume
+          if (pomoSessionStartMs == 0) pomoSessionStartMs = millis(); // Lần đầu bấm START
+          pomoRunning = true;
+        } else {
+          // Pause -> tăng biến đếm
+          pomoPauseCount++;
+          pomoRunning = false;
+        }
+        startBeep(1, 100, 3500);
+        stateChanged = true;
+      } else if (currentState == MODE_TIMER && !timerSelecting) {
+        if (!timerFinished) { 
+            timerRunning = !timerRunning; 
+            stateChanged = true; 
+        }
+      } else if (currentState == MODE_BLUETOOTH && isBluetoothConnected) {
+        a2dp_sink.play();
+      }
+      lastBtnPress = millis();
+    }
+
+    if (digitalRead(BTN_ACTION2) == LOW) {
+      if (currentState == MODE_POMODORO) {
+        resetPomodoro();
+      } else if (currentState == MODE_TIMER) {
+        resetTimerToSelection();
+      } else if (currentState == MODE_BLUETOOTH && isBluetoothConnected) {
+        a2dp_sink.next();
+      }
+      lastBtnPress = millis();
+    }
+  }
+}
+
+// ==========================================
+// HÀM ĐIỀU KHIỂN CẢM ỨNG
+// ==========================================
+void handleTouch() {
+  TSPoint p = ts.getPoint();
+  pinMode(XM, OUTPUT); pinMode(YP, OUTPUT);
+
+  bool isTouched = (p.z > 50 && p.z < 1000);
+  if (!isTouched) return;
+
+  int16_t touchX = map(p.y, TS_LEFT, TS_RT, 0, 320);
+  int16_t touchY = map(p.x, TS_TOP, TS_BOT, 0, 240);
+
+  if (touchX < 150 && touchY < 40 && (millis() - lastBtnPress > 400)) {
+    currentState = (AppState)((currentState + 1) % NUM_MODES);
+    stateChanged = true; lastBtnPress = millis(); return;
+  }
+
+  if (millis() - lastBtnPress <= 250) return;
+
+  if (currentState == MODE_POMODORO) {
+    if (touchX >= 220 && touchX <= 310) {
+      if (touchY >= 15 && touchY <= 60) {
+        pomoWorkDuration += 5 * 60; if (pomoWorkDuration > 90 * 60) pomoWorkDuration = 90 * 60;
+        if (!pomoRunning && pomoPhase == PHASE_WORK) { pomoTime = pomoWorkDuration; pomoInitialTime = pomoWorkDuration; }
+        stateChanged = true; lastBtnPress = millis();
+      } else if (touchY >= 70 && touchY <= 115) {
+pomoWorkDuration -= 5 * 60; if (pomoWorkDuration < 5 * 60) pomoWorkDuration = 5 * 60;
+        if (!pomoRunning && pomoPhase == PHASE_WORK) { pomoTime = pomoWorkDuration; pomoInitialTime = pomoWorkDuration; }
+        stateChanged = true; lastBtnPress = millis();
+      } else if (touchY >= 130 && touchY <= 180) {
+        if (!pomoRunning) {
+          // Resume / Start
+          if (pomoSessionStartMs == 0) pomoSessionStartMs = millis();
+          pomoRunning = true;
+        } else {
+          // Pause
+          pomoPauseCount++;
+          pomoRunning = false;
+        }
+        startBeep(1, 100, 3500);
+        stateChanged = true; lastBtnPress = millis();
+      } else if (touchY >= 192 && touchY <= 232) {
+        resetPomodoro(); lastBtnPress = millis();
+      }
+    }
+  }
+  else if (currentState == MODE_TIMER) {
+    if (timerSelecting) {
+      int cols = 4, bw = 70, bh = 75, gx = 8, gy = 8, startX = 8, startY = 45;
+      for (int i = 0; i < NUM_PRESETS; i++) {
+        int col = i % cols, row = i / cols;
+        int x = startX + col * (bw + gx), y = startY + row * (bh + gy);
+        if (touchX >= x && touchX <= x + bw && touchY >= y && touchY <= y + bh) {
+          timerInitial = timerSeconds = timerPresets[i];
+          timerSelecting = false; timerRunning = true; timerFinished = false;
+          stateChanged = true; lastBtnPress = millis(); return;
+        }
+      }
+    } else {
+      if (touchY >= 155 && touchY <= 210) {
+        if (touchX >= 20 && touchX <= 150) { 
+          if (!timerFinished) { timerRunning = !timerRunning; stateChanged = true; lastBtnPress = millis(); }
+        } else if (touchX >= 170 && touchX <= 300) { 
+          resetTimerToSelection(); lastBtnPress = millis();
+        }
+      }
+    }
+  }
+  else if (currentState == MODE_BLUETOOTH && isBluetoothConnected) {
+    if (touchY >= 140 && touchY <= 200) {
+      if (touchX >= 15 && touchX <= 100) {
+        a2dp_sink.previous(); lastBtnPress = millis();
+      } else if (touchX >= 115 && touchX <= 200) {
+        a2dp_sink.play(); lastBtnPress = millis();
+      } else if (touchX >= 215 && touchX <= 300) {
+        a2dp_sink.next(); lastBtnPress = millis();
+      }
+    }
+  }
+}
+
+// ==========================================
+// GIAO DIỆN 1: ĐỒNG HỒ
+// ==========================================
+void runClockMode() {
+  DateTime now = rtc.now();
+  static int lastDay = -1; static int lastSecond = -1; static int lastTemp = -99; static int lastBatt = -1;
+  if (stateChanged) { tft.fillScreen(C_BLACK); lastDay = -1; lastMinute = -1; lastSecond = -1; lastTemp = -99; lastBatt = -1; stateChanged = false; }
+
+  if (now.day() != lastDay) {
+    const char* days[] = {"MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"};
+    int currentDayIndex = now.dayOfTheWeek() == 0 ? 6 : now.dayOfTheWeek() - 1;
+    tft.setTextSize(2);
+    for (int i = 0; i < 7; i++) { tft.setCursor(10, 20 + i * 30); if (i == currentDayIndex) tft.setTextColor(C_CYAN, C_BLACK); else tft.setTextColor(C_MID_GRAY, C_BLACK); tft.print(days[i]); }
+    char dateStr[6]; sprintf(dateStr, "%02d/%02d", now.day(), now.month()); tft.setTextColor(C_WHITE, C_BLACK); tft.setTextSize(2); tft.setCursor(250, 130); tft.print(dateStr); lastDay = now.day();
+  }
+if (now.minute() != lastMinute) { char timeStr[6]; sprintf(timeStr, "%02d:%02d", now.hour(), now.minute()); tft.setTextColor(C_CYAN, C_BLACK); tft.setTextSize(6); tft.setCursor(75, 90); tft.print(timeStr); lastMinute = now.minute(); }
+  if (now.second() != lastSecond) { char secStr[3]; sprintf(secStr, "%02d", now.second()); tft.setTextColor(C_WHITE, C_BLACK); tft.setTextSize(3); tft.setCursor(260, 90); tft.print(secStr); lastSecond = now.second(); }
+  
+  int currentBatt = 85; 
+  if (currentBatt != lastBatt) {
+    tft.drawRect(220, 15, 36, 18, C_WHITE); tft.fillRect(256, 19, 3, 10, C_WHITE);
+    int fillW = map(currentBatt, 0, 100, 0, 32); uint16_t bColor = (currentBatt > 20) ? C_GREEN : C_RED; tft.fillRect(222, 17, fillW, 14, bColor);
+    tft.setTextColor(C_WHITE, C_BLACK); tft.setTextSize(2); tft.setCursor(265, 17); tft.print(currentBatt); tft.print("%"); lastBatt = currentBatt;
+  }
+  
+  int currentTemp = rtc.getTemperature(); bool isSunny = (currentTemp > 28);
+  if (currentTemp != lastTemp) {
+    tft.fillRect(245, 170, 75, 40, C_BLACK);
+    if (isSunny) { tft.fillCircle(230, 185, 10, C_YELLOW); tft.drawLine(230, 168, 230, 172, C_YELLOW); tft.drawLine(230, 198, 230, 202, C_YELLOW); tft.drawLine(213, 185, 217, 185, C_YELLOW); tft.drawLine(243, 185, 247, 185, C_YELLOW); tft.drawLine(218, 173, 221, 176, C_YELLOW); tft.drawLine(242, 197, 239, 194, C_YELLOW); tft.drawLine(242, 173, 239, 176, C_YELLOW); tft.drawLine(218, 197, 221, 194, C_YELLOW); }
+    else { tft.fillCircle(225, 182, 8, C_MID_GRAY); tft.fillCircle(239, 182, 8, C_MID_GRAY); tft.fillCircle(232, 174, 11, C_MID_GRAY); tft.drawLine(223, 195, 220, 203, C_CYAN); tft.drawLine(232, 195, 229, 203, C_CYAN); tft.drawLine(241, 195, 238, 203, C_CYAN); }
+    tft.setTextColor(C_WHITE, C_BLACK); tft.setTextSize(3); tft.setCursor(255, 175); tft.print(currentTemp); tft.drawCircle(297, 177, 3, C_WHITE); tft.setTextSize(2); tft.setCursor(303, 175); tft.print("C"); lastTemp = currentTemp;
+  }
+}
+
+// ==========================================
+// GIAO DIỆN 2: POMODORO 
+// ==========================================
+const char* phaseLabel(PomoPhase ph) {
+  if (ph == PHASE_WORK) return "LAM VIEC";
+  if (ph == PHASE_BREAK) return "NGHI NGAN";
+  return "NGHI DAI";
+}
+uint16_t phaseColor(PomoPhase ph) {
+  if (ph == PHASE_WORK) return C_CYAN;
+  if (ph == PHASE_BREAK) return C_GREEN;
+  return C_PURPLE;
+}
+
+// ==========================================
+// GỬI DỮ LIỆU PHIÊN QUA BLUETOOTH SERIAL
+// ==========================================
+void sendSessionData(bool completed) {
+  if (!SerialBT.connected()) {
+    Serial.println("[BT-Data] App not connected, skipping data send.");
+    return;
+  }
+
+  // Tính thời gian làm việc thực tế (từ lúc bắt đầu tới bây giờ)
+  unsigned long actualMs = millis() - pomoSessionStartMs;
+  int actualWorkSecs  = (int)(actualMs / 1000);
+  int actualBreakSecs = completed ? pomoBreakDuration : 0;
+
+  // Đóng gói JSON và gửi qua Bluetooth Serial
+  char jsonBuf[200];
+  snprintf(jsonBuf, sizeof(jsonBuf),
+    "{\"WorkDuration\":%d,\"BreakDuration\":%d,\"PauseCount\":%d,\"Completed\":%s}",
+    actualWorkSecs,
+    actualBreakSecs,
+    pomoPauseCount,
+    completed ? "true" : "false"
+  );
+
+  SerialBT.println(jsonBuf);
+  Serial.printf("[BT-Data] Sent: %s\n", jsonBuf);
+
+  // Reset biến theo dõi phiên sau khi gửi
+  pomoPauseCount     = 0;
+  pomoActualWorkSecs = 0;
+}
+
+void resetPomodoro() {
+  startBeep(2, 100, 1800);
+
+  // Nếu đang chạy thì đây là bỏ dở phiên -> gửi data Completed=false
+  if (pomoRunning || pomoTime < pomoInitialTime) {
+    sendSessionData(false);
+  }
+
+  pomoRunning = false;
+  pomoPhase = PHASE_WORK;
+  pomoSessionCount = 0;
+  pomoTime = pomoWorkDuration;
+  pomoInitialTime = pomoWorkDuration;
+  stateChanged = true;
+}
+
+void advancePomoPhase() {
+  if (pomoPhase == PHASE_WORK) {
+    // Hoàn thành 1 phiên làm việc -> gửi data Completed=true
+    sendSessionData(true);
+
+    pomoSessionCount++;
+    if (pomoSessionCount % 4 == 0) {
+      pomoPhase = PHASE_LONG_BREAK;
+      pomoTime = pomoLongBreakDuration;
+    } else {
+      pomoPhase = PHASE_BREAK;
+      pomoTime = pomoBreakDuration;
+    }
+    startBeep(4, 200, 4000);
+  } else {
+    // Chuyển về phiên làm việc mới, reset bộ đếm
+    pomoPhase = PHASE_WORK;
+    pomoTime = pomoWorkDuration;
+    pomoPauseCount = 0;          // Reset bộ đếm pause cho phiên mới
+    pomoSessionStartMs = millis(); // Bắt đầu tính giờ phiên mới
+    startBeep(4, 200, 4000);
+  }
+  pomoInitialTime = pomoTime;
+  lastPomoDraw = -2;
+}
+
+void drawPomodoroGUI() {
+  tft.fillScreen(C_BLACK);
+  tft.drawRoundRect(10, 15, 200, 217, 8, C_DARK_GRAY);
+  tft.fillRoundRect(220, 15, 90, 45, 6, C_DARK_GRAY); tft.setTextColor(C_CYAN); tft.setTextSize(2); tft.setCursor(245, 28); tft.print("+5m");
+  tft.fillRoundRect(220, 70, 90, 45, 6, C_DARK_GRAY); tft.setTextColor(C_CYAN); tft.setTextSize(2); tft.setCursor(245, 83); tft.print("-5m");
+  if (!pomoRunning) { tft.fillRoundRect(220, 130, 90, 50, 6, C_GREEN); tft.setTextColor(C_BLACK); tft.setTextSize(2); tft.setCursor(235, 147); tft.print("START"); }
+  else { tft.fillRoundRect(220, 130, 90, 50, 6, C_ORANGE); tft.setTextColor(C_BLACK); tft.setTextSize(2); tft.setCursor(235, 147); tft.print("PAUSE"); }
+  tft.fillRoundRect(220, 192, 90, 40, 6, C_RED); tft.setTextColor(C_WHITE); tft.setTextSize(2); tft.setCursor(238, 204); tft.print("RESET");
+  lastPomoSessionDraw = -2; lastPomoPhaseDraw = (PomoPhase)-1;
+}
+
+void runPomodoroMode() {
+  if (stateChanged) { drawPomodoroGUI(); stateChanged = false; lastPomoDraw = -2; }
+
+  if (pomoRunning && (millis() - pomoLastTick >= 1000)) {
+    if (pomoTime > 0) pomoTime--;
+    else advancePomoPhase();
+    pomoLastTick = millis();
+  }
+
+  if (pomoPhase != lastPomoPhaseDraw || pomoSessionCount != lastPomoSessionDraw) {
+    tft.fillRect(22, 18, 190, 18, C_BLACK);
+    tft.setTextColor(phaseColor(pomoPhase)); tft.setTextSize(1);
+    tft.setCursor(22, 20); tft.print(phaseLabel(pomoPhase));
+    char sess[24]; sprintf(sess, "Phien: %d", pomoSessionCount);
+    tft.setCursor(140, 20); tft.setTextColor(C_MID_GRAY); tft.print(sess);
+    lastPomoPhaseDraw = pomoPhase; lastPomoSessionDraw = pomoSessionCount;
+  }
+
+  if (pomoTime != lastPomoDraw) {
+    int m = pomoTime / 60; int s = pomoTime % 60; char pomoStr[6]; sprintf(pomoStr, "%02d:%02d", m, s);
+    tft.setTextColor(phaseColor(pomoPhase), C_BLACK); tft.setTextSize(6); tft.setCursor(25, 100); tft.print(pomoStr);
+    int totalSegments = 10; float progress = (float)pomoTime / pomoInitialTime; int activeSegments = progress * totalSegments;
+    for (int i = 0; i < totalSegments; i++) {
+      int segX = 22 + (i * 18); uint16_t segColor = phaseColor(pomoPhase);
+      if (i < activeSegments) tft.fillRect(segX, 40, 14, 15, segColor); else tft.fillRect(segX, 40, 14, 15, C_DARK_GRAY);
+    }
+    lastPomoDraw = pomoTime;
+  }
+}
+
+// ==========================================
+// GIAO DIỆN 3: ĐẾM NGƯỢC
+// ==========================================
+void resetTimerToSelection() {
+  timerRunning = false;
+  timerFinished = false;
+  timerSelecting = true;
+  stateChanged = true;
+}
+
+void drawTimerSelectGUI() {
+  tft.fillScreen(C_BLACK);
+  tft.setTextColor(C_CYAN); tft.setTextSize(2); tft.setCursor(70, 15); tft.print("CHON THOI GIAN");
+  int cols = 4, bw = 70, bh = 75, gx = 8, gy = 8, startX = 8, startY = 45;
+  for (int i = 0; i < NUM_PRESETS; i++) {
+    int col = i % cols, row = i / cols;
+int x = startX + col * (bw + gx), y = startY + row * (bh + gy);
+    tft.fillRoundRect(x, y, bw, bh, 6, C_DARK_GRAY);
+    tft.drawRoundRect(x, y, bw, bh, 6, C_CYAN);
+    tft.setTextColor(C_WHITE); tft.setTextSize(2);
+    int tw = strlen(timerLabels[i]) * 12;
+    tft.setCursor(x + (bw - tw) / 2, y + bh / 2 - 8);
+    tft.print(timerLabels[i]);
+  }
+}
+
+void drawTimerRunGUI() {
+  tft.fillScreen(C_BLACK);
+  tft.drawRoundRect(10, 15, 300, 217, 8, C_DARK_GRAY);
+  tft.fillRoundRect(20, 155, 130, 55, 6, C_ORANGE); tft.setTextColor(C_BLACK); tft.setTextSize(2);
+  tft.setCursor(45, 175); tft.print(timerRunning ? "PAUSE" : "RESUME");
+  tft.fillRoundRect(170, 155, 130, 55, 6, C_RED); tft.setTextColor(C_WHITE); tft.setTextSize(2);
+  tft.setCursor(215, 175); tft.print("STOP");
+  lastTimerDraw = -2;
+}
+
+void runTimerMode() {
+  if (stateChanged) {
+    if (timerSelecting) drawTimerSelectGUI(); else drawTimerRunGUI();
+    stateChanged = false;
+  }
+
+  if (timerSelecting) return;
+
+  if (timerRunning && !timerFinished && (millis() - timerLastTick >= 1000)) {
+    if (timerSeconds > 0) {
+      timerSeconds--;
+    } else {
+      timerRunning = false;
+      timerFinished = true;
+      lastTimerDraw = -2;
+      startBeep(4, 250, 2500); 
+    }
+    timerLastTick = millis();
+  }
+
+  static bool lastFinishedDraw = false;
+  if (timerFinished != lastFinishedDraw) { drawTimerRunGUI(); lastFinishedDraw = timerFinished; }
+
+  if (timerSeconds != lastTimerDraw || timerFinished) {
+    int m = timerSeconds / 60; int s = timerSeconds % 60;
+    char tStr[6]; sprintf(tStr, "%02d:%02d", m, s);
+    tft.fillRect(20, 60, 280, 70, C_BLACK);
+    tft.setTextColor(timerFinished ? C_RED : C_CYAN, C_BLACK); tft.setTextSize(6);
+    tft.setCursor(timerFinished ? 55 : 75, 70); tft.print(timerFinished ? "00:00" : tStr);
+
+    tft.fillRect(20, 30, 280, 20, C_BLACK);
+    tft.setTextSize(2); tft.setTextColor(timerFinished ? C_RED : C_WHITE);
+    tft.setCursor(90, 30);
+    tft.print(timerFinished ? "DA HET GIO!" : "DANG DEM NGUOC");
+
+    if (timerInitial > 0) {
+      int barW = 280; float progress = (float)timerSeconds / timerInitial;
+      int fillW = (int)(barW * progress);
+      tft.fillRect(20, 130, barW, 14, C_DARK_GRAY);
+      tft.fillRect(20, 130, fillW, 14, timerFinished ? C_RED : C_GREEN);
+    }
+    lastTimerDraw = timerSeconds;
+  }
+}
+
+// ==========================================
+// GIAO DIỆN 4: BLUETOOTH
+// ==========================================
+void drawBTIcon(int cx, int cy, int size, uint16_t color) {
+  int w = size * 0.7; int h = size * 0.5;
+  for (int i = -1; i <= 1; i++) {
+    tft.drawLine(cx + i, cy - size, cx + i, cy + size, color); tft.drawLine(cx + i, cy - size, cx + w + i, cy - h, color);
+    tft.drawLine(cx + w + i, cy - h, cx + i, cy, color); tft.drawLine(cx + i, cy, cx + w + i, cy + h, color);
+    tft.drawLine(cx + w + i, cy + h, cx + i, cy + size, color); tft.drawLine(cx - w + i, cy - h, cx + i, cy, color); tft.drawLine(cx - w + i, cy + h, cx + i, cy, color);
+  }
+}
+void runBluetoothMode() {
+  if (stateChanged || isBluetoothConnected != lastBluetoothState) {
+    if (isBluetoothConnected) {
+      tft.fillScreen(C_GREEN);
+      tft.drawCircle(160, 60, 40, C_WHITE);
+      drawBTIcon(160, 60, 20, C_WHITE);
+      tft.setTextSize(3); tft.setTextColor(C_WHITE); tft.setCursor(75, 115); tft.print("CONNECTED");
+      tft.fillRoundRect(15, 155, 80, 50, 5, C_DARK_GRAY);
+      tft.fillRoundRect(120, 155, 80, 50, 5, C_WHITE);
+      tft.fillRoundRect(225, 155, 80, 50, 5, C_DARK_GRAY);
+      tft.setTextSize(2);
+      tft.setTextColor(C_WHITE); tft.setCursor(30, 172); tft.print("PREV");
+      tft.setTextColor(C_BLACK); tft.setCursor(135, 172); tft.print("PLAY");
+      tft.setTextColor(C_WHITE); tft.setCursor(240, 172); tft.print("NEXT");
+    } else {
+      tft.fillScreen(C_BLACK);
+      tft.drawCircle(160, 100, 50, C_WHITE);
+      tft.drawCircle(160, 100, 51, C_WHITE);
+      drawBTIcon(160, 100, 25, C_WHITE);
+      tft.setTextSize(2); tft.setTextColor(C_WHITE);
+      tft.setCursor(85, 180); tft.print("READY TO PAIR");
+      tft.setTextColor(C_MID_GRAY); tft.setTextSize(1);
+      tft.setCursor(35, 220); tft.print("Go to Settings -> Bluetooth");
+    }
+    lastBluetoothState = isBluetoothConnected;
+    stateChanged = false;
+  }
+}

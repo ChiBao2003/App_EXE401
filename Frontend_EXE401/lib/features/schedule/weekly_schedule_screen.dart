@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
+import '../../core/constants/app_constants.dart';
 import 'dart:convert';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -54,11 +55,8 @@ class _WeeklyScheduleScreenState extends State<WeeklyScheduleScreen> {
   }
 
   Future<void> _loadSchedulesFromBackend() async {
-    String baseUrl = "http://127.0.0.1:8000";
-    if (!kIsWeb && Platform.isAndroid) baseUrl = "http://10.0.2.2:8000";
-
     try {
-      final response = await http.get(Uri.parse('$baseUrl/api/schedules/'));
+      final response = await http.get(Uri.parse('${AppConstants.baseUrl}/api/schedules/'));
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(utf8.decode(response.bodyBytes));
         setState(() {
@@ -99,15 +97,12 @@ class _WeeklyScheduleScreenState extends State<WeeklyScheduleScreen> {
   Future<void> _saveSchedulesToBackend() async {
     setState(() => _isSaving = true);
     final activeDays = _days.where((d) => d.isEnabled && d.note.isNotEmpty).toList();
-    
-    String baseUrl = "http://127.0.0.1:8000";
-    if (!kIsWeb && Platform.isAndroid) baseUrl = "http://10.0.2.2:8000";
 
     try {
       // Xóa lịch cũ trên backend nếu làm tính năng đồng bộ 2 chiều (bỏ qua bước này ở MVP)
       for (var day in activeDays) {
         await http.post(
-          Uri.parse('$baseUrl/api/schedules/'),
+          Uri.parse('${AppConstants.baseUrl}/api/schedules/'),
           headers: {'Content-Type': 'application/json'},
           body: json.encode({
             "user_id": "DEFAULT_USER",

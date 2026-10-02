@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
+import '../../core/constants/app_constants.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:io' show Platform;
@@ -167,7 +168,7 @@ class _DesignScreenState extends State<DesignScreen> {
   Future<void> _uploadToMarket() async {
     final jsonList = _objects.map((e) => e.toJson()).toList();
     String baseUrl = "http://127.0.0.1:8000";
-    if (!kIsWeb && Platform.isAndroid) baseUrl = "http://10.0.2.2:8000";
+    if (!kIsWeb && Platform.isAndroid) baseUrl = "http://192.168.1.18:8000";
 
     try {
       showSuccessSnackbar(context, 'Đang tải lên Chợ hiệu ứng...');

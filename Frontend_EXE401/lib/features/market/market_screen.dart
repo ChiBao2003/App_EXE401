@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/common_widgets.dart';
+import '../../core/constants/app_constants.dart';
 
 // === Model ===
 class MarketItem {
@@ -71,15 +72,7 @@ class _MarketScreenState extends State<MarketScreen> {
   Future<void> _fetchMarketItems() async {
     setState(() => _isLoading = true);
     try {
-      // Tự động nhận diện nền tảng để gọi đúng địa chỉ localhost
-      String baseUrl = "http://127.0.0.1:8000";
-      if (!kIsWeb) {
-        if (Platform.isAndroid) {
-          baseUrl = "http://10.0.2.2:8000";
-        }
-      }
-
-      final response = await http.get(Uri.parse('$baseUrl/api/market/'));
+      final response = await http.get(Uri.parse('${AppConstants.baseUrl}/api/market/'));
       if (response.statusCode == 200) {
         // Decode byte stream using UTF-8 to fix Vietnamese accents
         final List<dynamic> data = json.decode(utf8.decode(response.bodyBytes));
@@ -203,7 +196,7 @@ class _MarketScreenState extends State<MarketScreen> {
       String baseUrl = "http://127.0.0.1:8000";
       if (!kIsWeb) {
         if (Platform.isAndroid) {
-          baseUrl = "http://10.0.2.2:8000";
+          baseUrl = "http://192.168.1.18:8000";
         }
       }
 

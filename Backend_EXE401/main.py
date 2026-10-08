@@ -21,6 +21,7 @@ from api.v1.auth_router import router as auth_router
 from api.v1.ai_router import router as ai_router
 from api.v1.context_router import router as context_router
 from api.v1.usage_router import router as usage_router
+from api.v1.competition_router import router as competition_router
 
 # ============================================================
 # Khởi tạo FastAPI App
@@ -69,6 +70,8 @@ app.include_router(ai_router, prefix="/api/v1/ai", tags=["AI Productivity"])
 app.include_router(context_router, prefix="/api/v1/context", tags=["Context"])
 # === Phase 2 Digital Wellbeing routes ===
 app.include_router(usage_router, prefix="/api/v1", tags=["Digital Wellbeing"])
+# === Productivity Competition (Thi dua) ===
+app.include_router(competition_router, prefix="/api/v1/competition", tags=["Productivity Competition"])
 
 # ============================================================
 # Lifecycle Events - Kết nối / Đóng Database
@@ -90,7 +93,10 @@ async def _retention_loop():
 @app.on_event("startup")
 async def startup():
     import asyncio
+    from core.database import get_database
     await connect_db()
+    # Tuong thich cho cac router dung request.app.database
+    app.database = get_database()
     asyncio.create_task(_retention_loop())
 
 

@@ -1,7 +1,10 @@
 import asyncio
 import json
+import sys
 from application.ai.feature_engine import FeatureEngine
 from application.ai.ranking_engine import CandidateGenerator, RankingEngine, ContextReRanker
+
+sys.stdout.reconfigure(encoding='utf-8')
 
 def run_test_scenario(name, digital_twin, context, current_hour):
     print(f"\\n--- SCENARIO: {name} ---")

@@ -14,7 +14,7 @@ class AppConstants {
   // ============================================================
   static const String backendLanIp = String.fromEnvironment(
     'BACKEND_IP', 
-    defaultValue: '10.10.132.193'
+    defaultValue: '10.10.79.241'
   ); 
   static const int backendPort = 8000;
 

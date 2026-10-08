@@ -147,6 +147,12 @@ class ContextReRanker:
             elif risk_level == "CRITICAL" and cand.work_min <= 25:
                 score_adj += 0.2
                 cand.reason_codes.append("SHORT_SESSION_FOR_RECOVERY")
+            elif risk_level == "HIGH" and cand.work_min >= 40:
+                score_adj -= 0.2
+                cand.reason_codes.append("HIGH_BURNOUT_RISK")
+            elif risk_level == "HIGH" and cand.work_min <= 25:
+                score_adj += 0.1
+                cand.reason_codes.append("SHORT_SESSION_FOR_FATIGUE")
                 
             # Weather Penalty
             if is_hot > 0.5 and cand.work_min > 30:

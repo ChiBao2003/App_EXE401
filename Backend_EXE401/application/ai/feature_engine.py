@@ -18,10 +18,13 @@ class FeatureEngine:
         Extracts a standard feature vector for ranking models.
         """
         # 1. Profile Features (Normalized 0.0 - 1.0)
-        focus_score = digital_twin.get("focus_score", 50.0) / 100.0
-        stress_level = digital_twin.get("stress_level", 50.0) / 100.0
-        break_score = digital_twin.get("break_score", 50.0) / 100.0
-        efficiency = digital_twin.get("efficiency", 50.0) / 100.0
+        # Thiếu dữ liệu (None) -> prior trung tính 0.5 CHỈ cho ranker; has_enough_data=0 báo rõ đây không phải số đo thật.
+        NEUTRAL = 0.5
+        pct = lambda k: (digital_twin.get(k) / 100.0) if digital_twin.get(k) is not None else NEUTRAL
+        focus_score = pct("focus_score")
+        stress_level = pct("stress_level")
+        break_score = pct("break_score")
+        efficiency = pct("efficiency")
         
         total_sessions = digital_twin.get("total_sessions", 0)
         has_enough_data = 1.0 if total_sessions >= 5 else 0.0
@@ -33,9 +36,9 @@ class FeatureEngine:
         is_evening = 1.0 if 18 <= current_hour <= 23 else 0.0
         
         # Weather context mapping (if available)
-        weather_condition = context.get("weather", "").lower()
-        temp = context.get("temperature", 25)
-        is_hot = 1.0 if temp >= 33 else 0.0
+        weather_condition = (context.get("weather") or "").lower()
+        temp = context.get("temperature")  # None khi chưa có thời tiết thật
+        is_hot = 1.0 if (temp is not None and temp >= 33) else 0.0
         is_rainy = 1.0 if "rain" in weather_condition else 0.0
 
         # 3. Task Performance Features
@@ -63,11 +66,18 @@ class FeatureEngine:
         # Fatigue Proxy: High stress + Low break score
         fatigue_proxy = max(0.0, min(1.0, stress_level + (1.0 - break_score)))
         
+        # Burnout Feature (0.0 - 1.0)
+        b_val = digital_twin.get("burnout_risk_score")
+        if b_val is None and isinstance(digital_twin.get("burnout"), dict):
+            b_val = digital_twin.get("burnout", {}).get("burnout_risk_score")
+        burnout_risk = (float(b_val) / 100.0) if b_val is not None else 0.0
+
         result = {
             "focus_score": focus_score,
             "stress_level": stress_level,
             "break_score": break_score,
             "efficiency": efficiency,
+            "burnout_risk": burnout_risk,
             "has_enough_data": has_enough_data,
             "is_morning": is_morning,
             "is_afternoon": is_afternoon,

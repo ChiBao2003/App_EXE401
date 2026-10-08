@@ -3,16 +3,19 @@ application/context/context_service.py
 Aggregates environmental context (Weather, Location, Calendar Density)
 for prompt context injection.
 """
+import os
 from typing import Dict, Any, Optional
 import httpx
 
 
 class ContextService:
     def __init__(self, weather_api_key: str = ""):
-        self.weather_api_key = weather_api_key
+        # Không hard-code khóa trong source: ưu tiên tham số, sau đó biến môi trường.
+        self.weather_api_key = weather_api_key or os.getenv("OPENWEATHER_API_KEY", "")
 
     async def get_context(self, user_id: str, lat: Optional[float] = None, lon: Optional[float] = None, calendar_events_count: int = 4) -> Dict[str, Any]:
-        weather_info = {"temperature": 29.0, "weather": "Sunny", "location": "Unknown"}
+        # None = chưa lấy được thời tiết thật (không bịa 29°C/Sunny)
+        weather_info = {"temperature": None, "weather": None, "location": None}
         
         if self.weather_api_key:
             try:
@@ -29,7 +32,7 @@ class ContextService:
                                     lat = geo.get("lat")
                                     lon = geo.get("lon")
                         except Exception:
-                            lat, lon = 10.7629, 106.682 # Fallback TP.HCM
+                            lat, lon = None, None  # không đoán tọa độ; thiếu vị trí => không có thời tiết
 
                     # 2. Lấy thời tiết thật tại vị trí đó
                     if lat is not None and lon is not None:
@@ -50,6 +53,7 @@ class ContextService:
             "temperature": weather_info["temperature"],
             "weather": weather_info["weather"],
             "location": weather_info["location"],
+            "weather_available": weather_info["temperature"] is not None,
             "calendar_density": density,
             "calendar_events_count": calendar_events_count
         }

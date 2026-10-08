@@ -2,8 +2,14 @@
 main.py - Entry Point cua Backend E-ink Clock
 Kien truc: Clean Architecture + CQRS + Repository Pattern
 """
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
 
 from core.database import connect_db, close_db
 from api.v1.market_router import router as market_router
@@ -67,9 +73,25 @@ app.include_router(usage_router, prefix="/api/v1", tags=["Digital Wellbeing"])
 # ============================================================
 # Lifecycle Events - Kết nối / Đóng Database
 # ============================================================
+async def _retention_loop():
+    """Xóa dữ liệu cũ hơn 15 ngày: chạy lúc khởi động và lặp mỗi 6 giờ."""
+    import asyncio
+    from core.database import get_database
+    from application.ai.time_window import purge_old_data
+    while True:
+        try:
+            deleted = await purge_old_data(get_database())
+            print(f"[Retention] Da xoa du lieu > 15 ngay: {deleted}")
+        except Exception as e:
+            print(f"[Retention] Loi: {e!r}")
+        await asyncio.sleep(6 * 3600)
+
+
 @app.on_event("startup")
 async def startup():
+    import asyncio
     await connect_db()
+    asyncio.create_task(_retention_loop())
 
 
 @app.on_event("shutdown")

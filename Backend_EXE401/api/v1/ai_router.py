@@ -6,6 +6,9 @@ from fastapi import APIRouter, Depends, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from datetime import datetime, timedelta
 from typing import Optional, List
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from core.database import get_database
 from core.security import get_current_user_id
@@ -16,6 +19,7 @@ from application.ai.adaptive_pomodoro_agent import AdaptivePomodoroAgent
 from application.ai.digital_twin_service import DigitalTwinService
 from application.context.context_service import ContextService
 from application.ai.burnout_detector import BurnoutDetector
+from application.ai.time_window import now_vn
 from application.ai.ai_coach_orchestrator import AICoachOrchestrator
 from pydantic import BaseModel
 
@@ -42,8 +46,7 @@ async def recommend_pomodoro(
     Lay goi y work/break duration cho phien Pomodoro tiep theo.
     AI dua vao: Diem tap trung, lich su session hom nay, gio trong ngay.
     """
-    now = datetime.now()
-    hour = now.hour
+    hour = now_vn().hour  # gio VN thuc, khong phu thuoc mui gio server
 
     # Tinh completion_rate va break_skipped tu 3 session gan nhat
     recent = await db["productivity_logs"].find(
@@ -157,106 +160,64 @@ async def log_productivity(
 # ============================================================
 # 4. Burnout Risk Assessment (Rule-based Phase 1, LSTM Phase 2)
 # ============================================================
+# Map mức BRIX (LOW/MODERATE/CRITICAL, 3 mức theo bài báo) -> key Flutter (low/medium/high/critical).
+# Bài báo chỉ có 3 mức nên không có mức 'high' riêng; mức cao nhất giữ là 'critical'.
+_BRIX_TO_APP_LEVEL = {"LOW": "low", "MODERATE": "medium", "CRITICAL": "critical"}
+
+
 @router.get(
     "/burnout/risk",
     response_model=BurnoutRiskResponse,
-    summary="Danh gia nguy co Burnout dua tren 7 ngay gan nhat"
+    summary="Danh gia nguy co Burnout (BRIX proxy) dua tren 15 ngay gan nhat"
 )
 async def get_burnout_risk(
     user_id: str = Depends(get_current_user_id),
     db: AsyncIOMotorDatabase = Depends(get_database),
 ):
     """
-    Phase 1: Rule-based burnout detection.
-    Phase 2: LSTM Autoencoder se thay the.
+    Dung CHUNG BurnoutDetector voi AI Coach de moi noi hien cung mot con so.
+    Moi chi bao trong `indicators` deu lay tu so lieu do duoc that.
     """
-    cutoff = (datetime.utcnow() - timedelta(days=7)).isoformat()
-    logs = await db["productivity_logs"].find(
-        {"user_id": user_id, "timestamp": {"$gte": cutoff}}
-    ).to_list(length=200)
+    b = await BurnoutDetector(db).calculate_burnout_risk(user_id)
+    f = b.get("factors", {})
 
-    if not logs:
+    if b["data_confidence"] == "none":
         return BurnoutRiskResponse(
             risk_score=0.0, risk_level="low",
             indicators=["Chua co du lieu de phan tich"],
             advice="Hay bat dau theo doi phien lam viec de nhan khuyen nghi chinh xac."
         )
 
-    # Phan tich cac chi so
-    indicators = []
-    risk_score = 0.0
+    indicators = [f"Phan tich {f.get('sessions_analyzed', 0)} phien trong {f.get('window_days')} ngay gan nhat "
+                  f"(BRIX-W={b['brix_w']})"]
+    if b["data_confidence"] == "low":
+        indicators.append("Du lieu con it (<5 phien) nen ket qua chi mang tinh tham khao")
+    if f.get("avg_daily_work_min") is not None:
+        indicators.append(f"Lam viec trung binh {f['avg_daily_work_min'] / 60:.1f} gio/ngay")
+    if f.get("skipped_break_rate") is not None:
+        indicators.append(f"Bo qua break: {f['skipped_break_rate'] * 100:.0f}% cac phien")
+    if f.get("avg_pauses_per_session") is not None:
+        indicators.append(f"Ngat giua phien: trung binh {f['avg_pauses_per_session']:.1f} lan")
+    if f.get("incomplete_rate") is not None:
+        indicators.append(f"Ty le bo do phien: {f['incomplete_rate'] * 100:.0f}%")
+    if f.get("avg_focus") is not None:
+        indicators.append(f"Diem tap trung trung binh: {f['avg_focus']:.0f}/100")
+    if f.get("late_night_ratio"):
+        indicators.append(f"Lam viec khuya (23h-5h): {f['late_night_ratio'] * 100:.0f}% cac phien")
+    if f.get("unlocks_per_day") is not None:
+        indicators.append(f"Mo khoa dien thoai: {f['unlocks_per_day']:.0f} lan/ngay")
 
-    # Chi so 1: Tong gio lam viec trong 7 ngay
-    total_work_min = sum(s.get("work_min", 0) for s in logs)
-    avg_daily_min = total_work_min / 7
-    if avg_daily_min > 480:    # >8 gio/ngay trung binh
-        risk_score += 25
-        indicators.append(f"Lam viec qua nhieu: trung binh {avg_daily_min/60:.1f} gio/ngay")
-
-    # Chi so 2: Ty le bo qua break
-    skip_rate = sum(1 for s in logs if s.get("break_skipped", False)) / max(len(logs), 1)
-    if skip_rate > 0.4:
-        risk_score += 20
-        indicators.append(f"Bo qua break cao: {skip_rate*100:.0f}% cac phien")
-
-    # Chi so 3: Diem tap trung giam dan
-    scores = [s.get("concentration_score", 50) for s in logs]
-    if len(scores) >= 4:
-        first_half_avg = sum(scores[:len(scores)//2]) / (len(scores)//2)
-        second_half_avg = sum(scores[len(scores)//2:]) / (len(scores)//2)
-        if second_half_avg < first_half_avg - 15:
-            risk_score += 20
-            indicators.append("Diem tap trung giam dan ro ret trong tuan")
-
-    # Chi so 4: Nhieu lan ngat giua phien
-    avg_interruptions = sum(s.get("interruptions", 0) for s in logs) / max(len(logs), 1)
-    if avg_interruptions > 3:
-        risk_score += 15
-        indicators.append(f"Nhieu ngat giua phien: trung binh {avg_interruptions:.1f} lan")
-
-    # Chi so 5: Ty le hoan thanh thap
-    completion_rate = sum(1 for s in logs if s.get("completed", False)) / max(len(logs), 1)
-    if completion_rate < 0.5:
-        risk_score += 20
-        indicators.append(f"Ty le hoan thanh thap: {completion_rate*100:.0f}%")
-
-    # Chi so 6: Phone usage (Digital Wellbeing data)
-    today_str = datetime.utcnow().strftime("%Y-%m-%d")
-    usage_summary = await db["daily_summaries"].find_one(
-        {"user_id": user_id, "date": today_str}
-    )
-    if usage_summary:
-        unlocks = usage_summary.get("total_unlocks", 0)
-        distraction_time_ms = usage_summary.get("distraction_apps_time_ms", 0)
-        distraction_mins = distraction_time_ms // 60000
-        if unlocks > 60:
-            risk_score += 10
-            indicators.append(f"Mo khoa dien thoai qua nhieu: {unlocks} lan hom nay")
-        if distraction_mins > 240:  # >4 gio app giai tri
-            risk_score += 15
-            indicators.append(f"Dung app giai tri qua nhieu: {distraction_mins // 60}h{distraction_mins % 60}m")
-
-    # Phan loai risk level
-    if risk_score >= 70:
-        level = "critical"
-        advice = ("⚠️ NGUY CO CAO! Ban dang co dau hieu kiet suc nghiem trong. "
-                  "Hay nghi ngoi it nhat 1 ngay, giam tai cong viec va ngu du giac.")
-    elif risk_score >= 45:
-        level = "high"
-        advice = ("Ban dang lam viec qua suc. Hay giam 20% khoi luong cong viec, "
-                  "dam bao nghi break day du va di ngu som hon.")
-    elif risk_score >= 20:
-        level = "medium"
-        advice = ("Co mot so dau hieu can chu y. Hay dam bao nghi ngoi day du "
-                  "va khong bo qua break trong phien Pomodoro.")
-    else:
-        level = "low"
-        advice = "Ban dang lam viec o muc do lanh manh. Tiep tuc duy tri nhip do nay!"
-        if not indicators:
-            indicators = ["Tat ca chi so trong nguong an toan"]
+    level = _BRIX_TO_APP_LEVEL.get(b["risk_level"], "low")
+    advice = {
+        "critical": ("NGUY CO CAO! Ban dang co dau hieu kiet suc nghiem trong. "
+                     "Hay nghi ngoi, giam tai cong viec va ngu du giac."),
+        "medium": ("Co mot so dau hieu can chu y. Hay dam bao nghi ngoi day du "
+                   "va khong bo qua break trong phien Pomodoro."),
+        "low": "Ban dang lam viec o muc do lanh manh. Tiep tuc duy tri nhip do nay!",
+    }[level]
 
     return BurnoutRiskResponse(
-        risk_score=round(risk_score, 1),
+        risk_score=b["burnout_risk_score"],
         risk_level=level,
         indicators=indicators,
         advice=advice,
@@ -264,7 +225,10 @@ async def get_burnout_risk(
 
 class AIChatRequest(BaseModel):
     user_prompt: str
-    watch_connected: Optional[bool] = True
+    # Trang thai dong ho do App gui len; None = khong biet (khong bia 'connected=True')
+    watch_connected: Optional[bool] = None
+    watch_battery: Optional[int] = None
+    watch_screen: Optional[str] = None
     lat: Optional[float] = None
     lon: Optional[float] = None
 
@@ -275,7 +239,7 @@ async def chat_with_ai_coach(
     db: AsyncIOMotorDatabase = Depends(get_database)
 ):
     twin_svc = DigitalTwinService(db)
-    ctx_svc = ContextService(weather_api_key="4b7172ff834cc09858cd26613ecc243f")
+    ctx_svc = ContextService()  # khoa lay tu bien moi truong OPENWEATHER_API_KEY
     burnout_svc = BurnoutDetector(db)
 
     digital_twin = await twin_svc.compute_profile(user_id)
@@ -283,9 +247,11 @@ async def chat_with_ai_coach(
     context = await ctx_svc.get_context(user_id, lat=req.lat, lon=req.lon)
     burnout = await burnout_svc.calculate_burnout_risk(user_id)
     digital_twin["burnout"] = burnout
+    digital_twin["burnout_risk_score"] = burnout.get("burnout_risk_score", 0.0)
 
     # ── Phase 2: Inject Digital Wellbeing usage data ──
-    today_str = datetime.utcnow().strftime("%Y-%m-%d")
+    # daily_summaries lưu date theo ngày VN → dùng now_vn() thay vì utcnow()
+    today_str = now_vn().strftime("%Y-%m-%d")
     usage_summary = await db["daily_summaries"].find_one(
         {"user_id": user_id, "date": today_str}
     )
@@ -311,7 +277,11 @@ async def chat_with_ai_coach(
             "pomo_distraction_rate": usage_summary.get("pomo_distraction_rate", 0),
         }
 
-    watch_status = {"connected": req.watch_connected, "battery": 85, "current_screen": "POMODORO"}
+    watch_status = {
+        "connected": req.watch_connected,
+        "battery": req.watch_battery,
+        "current_screen": req.watch_screen,
+    }
 
     # Fetch past chat history (last 10 turns)
     history_cursor = db["ai_chat_history"].find({"user_id": user_id}).sort("timestamp", -1).limit(10)
@@ -422,7 +392,7 @@ async def chat_with_ai_coach(
                     "accepted": False,
                     "completed": False, 
                     "outcome": None,
-                    "model_version": "gemini-1.5-flash",
+                    "model_version": res.get("source") or "unknown",  # model Gemini thuc su da tra loi
                     "ranking_version": "v1-rule-based"
                 })
                 # Add recommendation_id to the API response for Flutter
@@ -527,8 +497,7 @@ async def daily_advice(
     Phase 1: Rule-based dua tren lich su gan nhat.
     Phase 2: Thay bang Gemini API call voi context day du.
     """
-    now = datetime.now()
-    hour = now.hour
+    hour = now_vn().hour
     cutoff = (datetime.utcnow() - timedelta(days=3)).isoformat()
     recent = await db["productivity_logs"].find(
         {"user_id": user_id, "timestamp": {"$gte": cutoff}}

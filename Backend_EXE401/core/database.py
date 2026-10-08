@@ -2,10 +2,11 @@
 core/database.py - Tầng Core
 Quản lý kết nối MongoDB tập trung, dùng Dependency Injection.
 """
+import os
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
-MONGO_URI = "mongodb://localhost:27017"
-DATABASE_NAME = "Pomodoro_App"
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+DATABASE_NAME = os.getenv("MONGO_DB_NAME", "Pomodoro_App")
 
 _client: AsyncIOMotorClient = None
 

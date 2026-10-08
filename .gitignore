@@ -30,3 +30,17 @@ build/
 *.swo
 .DS_Store
 Thumbs.db
+
+# Environment variables & secrets
+.env
+*.env
+.env.*
+!.env.example
+
+# Vector DB & Storage
+Backend_EXE401/storage/chroma/
+*.sqlite3
+
+# Tooling
+.kilo/
+

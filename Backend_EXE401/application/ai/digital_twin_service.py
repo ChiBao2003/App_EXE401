@@ -1,11 +1,12 @@
 """
 application/ai/digital_twin_service.py
 Calculates Digital Twin profile metrics (Focus, Break, Stress, Efficiency)
-by aggregating user Pomodoro session logs over 30 days.
+by aggregating user Pomodoro session logs over the last 15 days (retention limit).
 """
 from typing import Dict, Any, List
 from datetime import datetime, timedelta
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from application.ai.time_window import window_start_iso
 
 
 class DigitalTwinService:
@@ -13,32 +14,39 @@ class DigitalTwinService:
         self.db = db
 
     async def compute_profile(self, user_id: str) -> Dict[str, Any]:
-        since_date = datetime.utcnow() - timedelta(days=30)
+        since_iso = window_start_iso("last_15_days")
         cursor = self.db["pomodoro_sessions"].find({
             "user_id": user_id,
-            "synced_at": {"$gte": since_date.isoformat()}
+            "synced_at": {"$gte": since_iso}
         })
         sessions = await cursor.to_list(length=200)
 
         if not sessions:
+            # Chưa có phiên thật: KHÔNG bịa số mặc định. Tầng trên phải nói "chưa có dữ liệu".
             return {
-                "focus_score": 75.0,
-                "break_score": 80.0,
-                "stress_level": 40.0,
-                "efficiency": 78.0,
+                "focus_score": None,
+                "break_score": None,
+                "stress_level": None,
+                "efficiency": None,
                 "total_sessions": 0,
+                "data_confidence": "none",
                 "today_sessions_detail": [],
                 "today_productivity_logs": []
             }
 
-        total_work = sum(s.get("hardware_data", {}).get("work_min", 25) for s in sessions)
-        total_pauses = sum(s.get("hardware_data", {}).get("pauses", 0) for s in sessions)
-        completed = sum(1 for s in sessions if s.get("hardware_data", {}).get("completed", True))
+        # ── Aggregate chỉ dùng giá trị THẬT, bỏ qua bản ghi thiếu field ──
+        work_vals = [s.get("hardware_data", {}).get("work_min")
+                     for s in sessions
+                     if s.get("hardware_data", {}).get("work_min") is not None]
+        pause_vals = [s.get("hardware_data", {}).get("pauses", 0) for s in sessions]
+        # completed mặc định False (an toàn hơn True) khi field thiếu
+        completed = sum(1 for s in sessions
+                        if s.get("hardware_data", {}).get("completed", False))
 
-        # Use AVERAGE pauses per session (not total accumulated) to keep scores proportional
         n = len(sessions)
-        avg_pauses = total_pauses / n if n > 0 else 0
-        completion_rate = (completed / n) * 100
+        total_work = sum(work_vals) if work_vals else 0
+        avg_pauses = sum(pause_vals) / n if n > 0 else 0
+        completion_rate = (completed / n) * 100 if n > 0 else 0
         focus_score = max(0.0, min(100.0, completion_rate - (avg_pauses * 3.5)))
         stress_level = max(0.0, min(100.0, (avg_pauses * 8.0) + (100 - completion_rate) * 0.4))
         break_score = max(20.0, 100.0 - (stress_level * 0.5))
@@ -47,9 +55,24 @@ class DigitalTwinService:
         # 2. Extract Task-Type Specific Performance from productivity_logs
         cursor_tasks = self.db["productivity_logs"].find({
             "user_id": user_id,
-            "timestamp": {"$gte": since_date.isoformat()}
+            "timestamp": {"$gte": since_iso}
         })
-        task_logs = await cursor_tasks.to_list(length=200)
+        task_logs = await cursor_tasks.to_list(length=500)
+
+        # Thống kê theo từng cửa sổ thời gian (this_week = tuần lịch từ Thứ Hai)
+        period_stats = {}
+        for name in ("today", "this_week", "last_7_days", "last_15_days"):
+            start = window_start_iso(name)
+            in_win = [l for l in task_logs if str(l.get("timestamp", "")) >= start]
+            cnt = len(in_win)
+            period_stats[name] = {
+                "session_count": cnt,
+                "total_work_min": sum(l.get("work_min", 0) for l in in_win),
+                "avg_focus": round(
+                    sum(l.get("concentration_score", 0) for l in in_win if l.get("concentration_score") is not None)
+                    / max(1, sum(1 for l in in_win if l.get("concentration_score") is not None)), 1
+                ) if any(l.get("concentration_score") is not None for l in in_win) else None,
+            }
 
         task_performance = {}
         for log in task_logs:
@@ -66,10 +89,16 @@ class DigitalTwinService:
             
             p = task_performance[t_type]
             p["sessions"] += 1
-            focus = log.get("concentration_score", 50.0)
-            p["focus_sum"] += focus
-            
-            hour = log.get("hour_of_day", 12)
+            focus = log.get("concentration_score")
+            if focus is not None:
+                p["focus_sum"] += focus
+            else:
+                p["sessions"] -= 1  # Không tính phiên thiếu focus vào count
+                continue
+
+            hour = log.get("hour_of_day")
+            if hour is None:
+                continue
             if 5 <= hour < 12:
                 p["morning_sessions"] += 1
                 p["morning_focus_sum"] += focus
@@ -98,17 +127,18 @@ class DigitalTwinService:
             "efficiency": round(efficiency, 1),
             "total_sessions": len(sessions),
             "task_performance": task_stats,
+            "period_stats": period_stats,
             "today_sessions_detail": today_sessions_detail,
             "today_productivity_logs": today_productivity_logs
         }
 
     async def _get_today_sessions(self, user_id: str) -> List[Dict[str, Any]]:
         """Lấy danh sách chi tiết từng phiên Pomodoro hôm nay."""
-        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_iso = window_start_iso("today")
         cursor = self.db["pomodoro_sessions"].find(
             {
                 "user_id": user_id,
-                "synced_at": {"$gte": today_start.isoformat()}
+                "synced_at": {"$gte": today_iso}
             },
             {"_id": 0}
         ).sort("synced_at", 1)
@@ -138,11 +168,11 @@ class DigitalTwinService:
 
     async def _get_today_productivity_logs(self, user_id: str) -> List[Dict[str, Any]]:
         """Lấy danh sách chi tiết productivity logs hôm nay."""
-        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_iso = window_start_iso("today")
         cursor = self.db["productivity_logs"].find(
             {
                 "user_id": user_id,
-                "timestamp": {"$gte": today_start.isoformat()}
+                "timestamp": {"$gte": today_iso}
             },
             {"_id": 0}
         ).sort("timestamp", 1)

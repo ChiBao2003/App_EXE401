@@ -19,9 +19,13 @@ class CompetitionScreen extends StatefulWidget {
 
 class _CompetitionScreenState extends State<CompetitionScreen> {
   String? currentRoomCode;
+  String? groupName;
+  int? durationDays;
+  bool isExpired = false;
   List<dynamic> leaderboard = [];
   bool isLoading = false;
-  
+  String _selectedPeriod = "all"; // today | week | month | all
+
   // Controllers
   final TextEditingController _roomNameController = TextEditingController();
   final TextEditingController _joinCodeController = TextEditingController();
@@ -36,7 +40,7 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
     super.dispose();
   }
 
-  // API Cale: Tạo phòng
+  // API Call: Tạo phòng
   Future<void> _createRoom() async {
     if (_roomNameController.text.isEmpty) return;
     setState(() => isLoading = true);
@@ -94,7 +98,8 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
         _fetchLeaderboard(code);
         _showSuccess("Vào phòng thành công!");
       } else {
-        _showError("Phòng không tồn tại hoặc đã đầy");
+        final data = jsonDecode(res.body);
+        _showError(data["detail"] ?? "Phòng không tồn tại hoặc đã đầy");
       }
     } catch (e) {
       _showError("Lỗi kết nối");
@@ -102,22 +107,25 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
     setState(() => isLoading = false);
   }
 
-  // Lấy BXH
+  // Lấy BXH với filter period
   Future<void> _fetchLeaderboard(String code) async {
     setState(() => isLoading = true);
     try {
-      final res = await http.get(Uri.parse('$API_BASE/leaderboard/$code'));
+      final res = await http.get(Uri.parse('$API_BASE/leaderboard/$code?period=$_selectedPeriod'));
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         setState(() {
           leaderboard = data["leaderboard"];
+          groupName = data["group_name"];
+          durationDays = data["duration_days"];
+          isExpired = data["expired"] ?? false;
         });
       }
     } catch (e) {}
     setState(() => isLoading = false);
   }
 
-  // Gỉa lập nộp điểm Pomodoro để TEST trên App
+  // Giả lập nộp điểm Pomodoro để TEST trên App
   Future<void> _submitFakeSession() async {
     setState(() => isLoading = true);
     try {
@@ -126,7 +134,7 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({
           "user_id": _userIdController.text,
-          "work_min": 25, // Gỉa lập học 25 phút
+          "work_min": 25, // Giả lập học 25 phút
           "completed": true,
           "pauses": 0
         }),
@@ -259,47 +267,81 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
   Widget _buildArena() {
     return Column(
       children: [
+        // Header phòng
         Container(
-          padding: const EdgeInsets.all(24),
-          color: const Color(0xFFFFD54F),
+          padding: const EdgeInsets.all(20),
+          color: isExpired ? Colors.grey.shade400 : const Color(0xFFFFD54F),
           width: double.infinity,
           child: Column(
             children: [
+              if (groupName != null)
+                Text(groupName!, style: GoogleFonts.nunito(fontSize: 16, fontWeight: FontWeight.w600)),
               Text("Mã phòng: $currentRoomCode", style: GoogleFonts.nunito(fontSize: 28, fontWeight: FontWeight.w900, letterSpacing: 2)),
-              const SizedBox(height: 8),
-              Text("Mời bạn bè nhập mã này để tham gia", style: GoogleFonts.nunito(fontSize: 14)),
-              const SizedBox(height: 16),
-              Row(
+              const SizedBox(height: 4),
+              Text(
+                isExpired 
+                  ? "⛔ Phòng đã kết thúc (hết ${durationDays ?? 7} ngày)" 
+                  : "Thời hạn: ${durationDays ?? 7} ngày • Mời bạn bè nhập mã để tham gia",
+                style: GoogleFonts.nunito(fontSize: 13, color: isExpired ? Colors.red.shade800 : Colors.black54),
+              ),
+              const SizedBox(height: 12),
+              if (!isExpired) Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   ElevatedButton.icon(
                     onPressed: () => _fetchLeaderboard(currentRoomCode!),
-                    icon: const Icon(Icons.refresh),
+                    icon: const Icon(Icons.refresh, size: 18),
                     label: const Text("Làm mới"),
                   ),
                   const SizedBox(width: 12),
                   ElevatedButton.icon(
                     onPressed: isLoading ? null : _submitFakeSession,
-                    icon: const Icon(Icons.add_task),
+                    icon: const Icon(Icons.add_task, size: 18),
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
                     label: const Text("Test Cộng Điểm"),
                   ),
                 ],
-              )
+              ),
             ],
           ),
         ),
+
+        // Period Filter Tabs: Ngày / Tuần / Tháng / Tất cả
+        Container(
+          color: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+          child: Row(
+            children: [
+              _buildPeriodChip("Hôm nay", "today"),
+              const SizedBox(width: 8),
+              _buildPeriodChip("Tuần này", "week"),
+              const SizedBox(width: 8),
+              _buildPeriodChip("Tháng này", "month"),
+              const SizedBox(width: 8),
+              _buildPeriodChip("Tất cả", "all"),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+
+        // Bảng xếp hạng
         Expanded(
           child: isLoading 
             ? const Center(child: CircularProgressIndicator())
             : leaderboard.isEmpty 
-              ? const Center(child: Text("Chưa có dữ liệu thi đua nào"))
+              ? Center(
+                  child: Text(
+                    _selectedPeriod == "all" ? "Chưa có dữ liệu thi đua nào" : "Không có dữ liệu cho khoảng thời gian này",
+                    style: GoogleFonts.nunito(color: Colors.grey),
+                  ),
+                )
               : ListView.builder(
                   itemCount: leaderboard.length,
                   padding: const EdgeInsets.all(16),
                   itemBuilder: (context, index) {
                     final lb = leaderboard[index];
                     final isTop1 = index == 0;
+                    final isTop3 = index < 3;
                     return Card(
                       elevation: isTop1 ? 4 : 1,
                       margin: const EdgeInsets.only(bottom: 12),
@@ -307,10 +349,16 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
                       color: isTop1 ? Colors.amber.shade100 : Colors.white,
                       child: ListTile(
                         leading: CircleAvatar(
-                          backgroundColor: isTop1 ? Colors.amber : Colors.grey.shade300,
+                          backgroundColor: isTop1 
+                            ? Colors.amber 
+                            : index == 1 
+                              ? Colors.grey.shade400 
+                              : index == 2 
+                                ? Colors.brown.shade300 
+                                : Colors.grey.shade200,
                           child: Text(
-                            "#${lb['rank']}", 
-                            style: TextStyle(fontWeight: FontWeight.bold, color: isTop1 ? Colors.white : Colors.black87)
+                            isTop3 ? ["🥇", "🥈", "🥉"][index] : "#${lb['rank']}", 
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: isTop3 ? 20 : 14, color: isTop3 ? null : Colors.black87)
                           ),
                         ),
                         title: Text(lb['user_id'], style: GoogleFonts.nunito(fontWeight: FontWeight.bold, fontSize: 18)),
@@ -323,8 +371,50 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
                     );
                   }
                 ),
-        )
+        ),
+
+        // Nút quay lại sảnh
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: TextButton.icon(
+            onPressed: () => setState(() {
+              currentRoomCode = null;
+              leaderboard = [];
+              groupName = null;
+              isExpired = false;
+              _selectedPeriod = "all";
+            }),
+            icon: const Icon(Icons.arrow_back),
+            label: const Text("Quay lại sảnh chờ"),
+          ),
+        ),
       ],
+    );
+  }
+
+  Widget _buildPeriodChip(String label, String value) {
+    final isSelected = _selectedPeriod == value;
+    return GestureDetector(
+      onTap: () {
+        setState(() => _selectedPeriod = value);
+        if (currentRoomCode != null) _fetchLeaderboard(currentRoomCode!);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFFFFD54F) : Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: isSelected ? Colors.amber.shade700 : Colors.grey.shade300),
+        ),
+        child: Text(
+          label,
+          style: GoogleFonts.nunito(
+            fontSize: 13,
+            fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+            color: isSelected ? Colors.black87 : Colors.grey.shade600,
+          ),
+        ),
+      ),
     );
   }
 }

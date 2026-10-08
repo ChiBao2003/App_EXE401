@@ -7,10 +7,10 @@
 # - POST /api/v1/competition/groups : Tạo phòng thi đua mới
 # - POST /api/v1/competition/groups/join : Xin vào phòng
 # - POST /api/v1/competition/submit : Chốt sổ điểm 1 phiên Pomodoro (không dùng AI)
-# - GET /api/v1/competition/leaderboard/{room_code} : Lấy bảng xếp hạng
+# - GET /api/v1/competition/leaderboard/{room_code}?period=today|week|month|all : Lấy bảng xếp hạng
 # ==========================================
 
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request, HTTPException, Query
 from pydantic import BaseModel
 from typing import List, Optional
 import datetime
@@ -52,6 +52,27 @@ def calculate_prs(work_min: int, completed: bool, pauses: int) -> int:
 def generate_room_code():
     return str(uuid.uuid4())[:6].upper()
 
+def _check_expired(group: dict) -> bool:
+    """Kiểm tra phòng đã hết hạn chưa dựa trên created_at + duration_days"""
+    created = group.get("created_at")
+    duration = group.get("duration_days", 7)
+    if not created:
+        return False
+    expiry = created + datetime.timedelta(days=duration)
+    return datetime.datetime.utcnow() > expiry
+
+def _get_date_filter(period: str) -> Optional[str]:
+    """Trả về ngày bắt đầu lọc dựa theo period (today/week/month)"""
+    now = datetime.datetime.utcnow()
+    if period == "today":
+        return now.strftime("%Y-%m-%d")
+    elif period == "week":
+        start = now - datetime.timedelta(days=now.weekday())  # Thứ 2 tuần này
+        return start.strftime("%Y-%m-%d")
+    elif period == "month":
+        return now.strftime("%Y-%m-01")  # Ngày 1 tháng này
+    return None  # "all" => không lọc
+
 # --- Endpoints ---
 @router.post("/groups")
 async def create_group(request: Request, payload: GroupCreate):
@@ -72,7 +93,7 @@ async def create_group(request: Request, payload: GroupCreate):
     return {
         "status": "success", 
         "room_code": room_code, 
-        "message": f"Tạo phòng '{payload.name}' thành công! Mã phòng: {room_code}"
+        "message": f"Tao phong '{payload.name}' thanh cong! Ma phong: {room_code}"
     }
 
 @router.post("/groups/join")
@@ -83,19 +104,23 @@ async def join_group(request: Request, payload: GroupJoin):
     
     group = await db["Groups"].find_one({"room_code": payload.room_code})
     if not group:
-        raise HTTPException(status_code=404, detail="Không tìm thấy mã phòng")
+        raise HTTPException(status_code=404, detail="Khong tim thay ma phong")
+    
+    # Kiểm tra phòng đã hết hạn chưa
+    if _check_expired(group):
+        raise HTTPException(status_code=400, detail="Phong da het han thi dua")
     
     # Kiểm tra giới hạn thành viên (tối đa 5 người để cạnh tranh tốt)
     if payload.user_id not in group["members"]:
         if len(group["members"]) >= 5:
-            raise HTTPException(status_code=400, detail="Phòng đã đầy (Tối đa 5 người)")
+            raise HTTPException(status_code=400, detail="Phong da day (Toi da 5 nguoi)")
             
         await db["Groups"].update_one(
             {"room_code": payload.room_code},
             {"$push": {"members": payload.user_id}}
         )
         
-    return {"status": "success", "message": "Đã tham gia phòng thi đua thành công!"}
+    return {"status": "success", "message": "Da tham gia phong thi dua thanh cong!"}
 
 @router.post("/submit")
 async def submit_session(request: Request, payload: PomodoroSubmission):
@@ -124,13 +149,18 @@ async def submit_session(request: Request, payload: PomodoroSubmission):
     return {
         "status": "success", 
         "prs_earned": prs, 
-        "message": f"Tuyệt vời! Bạn nhận được {prs} điểm PRS."
+        "message": f"Tuyet voi! Ban nhan duoc {prs} diem PRS."
     }
 
 @router.get("/leaderboard/{room_code}")
-async def get_leaderboard(request: Request, room_code: str):
+async def get_leaderboard(
+    request: Request, 
+    room_code: str,
+    period: str = Query(default="all", regex="^(today|week|month|all)$")
+):
     """
-    Lấy bảng xếp hạng tổng điểm của phòng thi đua
+    Lấy bảng xếp hạng tổng điểm của phòng thi đua.
+    Query param `period`: today | week | month | all
     """
     db = request.app.database
     if db is None:
@@ -138,15 +168,31 @@ async def get_leaderboard(request: Request, room_code: str):
     
     group = await db["Groups"].find_one({"room_code": room_code})
     if not group:
-        raise HTTPException(status_code=404, detail="Không tìm thấy mã phòng")
+        raise HTTPException(status_code=404, detail="Khong tim thay ma phong")
+    
+    # Kiểm tra hết hạn
+    expired = _check_expired(group)
     
     members = group["members"]
     if not members:
-        return {"room_code": room_code, "leaderboard": []}
+        return {
+            "room_code": room_code, 
+            "group_name": group["name"],
+            "duration_days": group["duration_days"],
+            "expired": expired,
+            "period": period,
+            "leaderboard": []
+        }
+    
+    # Xây dựng filter theo period
+    match_filter = {"user_id": {"$in": members}}
+    date_start = _get_date_filter(period)
+    if date_start:
+        match_filter["date"] = {"$gte": date_start}
         
     # Aggregate điểm từ DailyStats cho các thành viên trong nhóm
     pipeline = [
-        {"$match": {"user_id": {"$in": members}}},
+        {"$match": match_filter},
         {
             "$group": {
                 "_id": "$user_id", 
@@ -174,6 +220,8 @@ async def get_leaderboard(request: Request, room_code: str):
         "room_code": room_code, 
         "group_name": group["name"],
         "duration_days": group["duration_days"],
+        "expired": expired,
+        "period": period,
         "leaderboard": leaderboard
     }
 

@@ -1,4 +1,3 @@
-<<<<<<< Updated upstream
 """
 core/database.py - Tầng Core
 Quản lý kết nối MongoDB tập trung, dùng Dependency Injection.
@@ -32,24 +31,3 @@ def get_database() -> AsyncIOMotorDatabase:
     Sử dụng: db: AsyncIOMotorDatabase = Depends(get_database)
     """
     return _client[DATABASE_NAME]
-=======
-from motor.motor_asyncio import AsyncIOMotorClient
-
-mongodb_client = None
-database = None
-
-async def connect_db():
-    global mongodb_client, database
-    mongodb_client = AsyncIOMotorClient("mongodb://localhost:27017")
-    database = mongodb_client["Pomodoro_App"]
-    print("Connected to MongoDB!")
-
-async def close_db():
-    global mongodb_client
-    if mongodb_client:
-        mongodb_client.close()
-        print("Closed MongoDB connection.")
-
-def get_database():
-    return database
->>>>>>> Stashed changes

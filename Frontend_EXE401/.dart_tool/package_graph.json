@@ -52,11 +52,6 @@
       ]
     },
     {
-<<<<<<< Updated upstream
-=======
-<<<<<<< Updated upstream
-=======
->>>>>>> Stashed changes
       "name": "dio",
       "version": "5.11.1",
       "dependencies": [
@@ -78,8 +73,6 @@
       ]
     },
     {
-<<<<<<< Updated upstream
-=======
       "name": "flutter_blue_plus",
       "version": "1.36.8",
       "dependencies": [
@@ -92,8 +85,6 @@
       ]
     },
     {
->>>>>>> Stashed changes
->>>>>>> Stashed changes
       "name": "http",
       "version": "1.6.0",
       "dependencies": [
@@ -212,26 +203,11 @@
       ]
     },
     {
-<<<<<<< Updated upstream
-      "name": "meta",
-<<<<<<< HEAD
-      "version": "1.17.0",
-=======
-      "version": "1.19.0",
->>>>>>> 8020cfb (feat: AI Coach fallback chain + rule-based V2 + usage tracking)
-      "dependencies": []
-    },
-    {
-=======
-<<<<<<< Updated upstream
-=======
       "name": "meta",
       "version": "1.17.0",
       "dependencies": []
     },
     {
->>>>>>> Stashed changes
->>>>>>> Stashed changes
       "name": "collection",
       "version": "1.19.1",
       "dependencies": []
@@ -248,26 +224,11 @@
       ]
     },
     {
-<<<<<<< Updated upstream
-      "name": "vector_math",
-<<<<<<< HEAD
-      "version": "2.2.0",
-=======
-      "version": "2.4.2",
->>>>>>> 8020cfb (feat: AI Coach fallback chain + rule-based V2 + usage tracking)
-      "dependencies": []
-    },
-    {
-=======
-<<<<<<< Updated upstream
-=======
       "name": "vector_math",
       "version": "2.2.0",
       "dependencies": []
     },
     {
->>>>>>> Stashed changes
->>>>>>> Stashed changes
       "name": "stack_trace",
       "version": "1.12.1",
       "dependencies": [
@@ -352,11 +313,6 @@
       ]
     },
     {
-<<<<<<< Updated upstream
-=======
-<<<<<<< Updated upstream
-=======
->>>>>>> Stashed changes
       "name": "equatable",
       "version": "2.1.0",
       "dependencies": [
@@ -365,8 +321,6 @@
       ]
     },
     {
-<<<<<<< Updated upstream
-=======
       "name": "flutter_blue_plus_web",
       "version": "7.0.2",
       "dependencies": [
@@ -410,16 +364,11 @@
       ]
     },
     {
->>>>>>> Stashed changes
       "name": "web",
       "version": "1.1.1",
       "dependencies": []
     },
     {
-<<<<<<< Updated upstream
-=======
->>>>>>> Stashed changes
->>>>>>> Stashed changes
       "name": "permission_handler_platform_interface",
       "version": "4.4.0",
       "dependencies": [
@@ -898,20 +847,6 @@
       ]
     },
     {
-<<<<<<< Updated upstream
-=======
-<<<<<<< Updated upstream
-      "name": "dbus",
-      "version": "0.7.14",
-      "dependencies": [
-        "args",
-        "ffi",
-        "meta",
-        "xml"
-      ]
-    },
-    {
-=======
       "name": "xml",
       "version": "7.0.1",
       "dependencies": [
@@ -926,8 +861,6 @@
       "dependencies": []
     },
     {
->>>>>>> Stashed changes
->>>>>>> Stashed changes
       "name": "pub_semver",
       "version": "2.2.0",
       "dependencies": [
@@ -994,109 +927,6 @@
         "meta",
         "pub_semver"
       ]
-<<<<<<< Updated upstream
-    },
-    {
-      "name": "flutter_blue_plus",
-      "version": "1.36.8",
-      "dependencies": [
-        "flutter",
-        "flutter_blue_plus_android",
-        "flutter_blue_plus_darwin",
-        "flutter_blue_plus_linux",
-        "flutter_blue_plus_platform_interface",
-        "flutter_blue_plus_web"
-      ]
-    },
-    {
-      "name": "flutter_blue_plus_web",
-      "version": "7.0.2",
-      "dependencies": [
-        "flutter",
-        "flutter_blue_plus_platform_interface",
-        "flutter_web_plugins",
-        "web"
-      ]
-    },
-    {
-      "name": "flutter_blue_plus_platform_interface",
-      "version": "7.0.0",
-      "dependencies": [
-        "flutter"
-      ]
-    },
-    {
-      "name": "flutter_blue_plus_linux",
-      "version": "7.0.3",
-      "dependencies": [
-        "bluez",
-        "flutter",
-        "flutter_blue_plus_platform_interface",
-        "rxdart"
-      ]
-    },
-    {
-      "name": "flutter_blue_plus_darwin",
-      "version": "7.0.3",
-      "dependencies": [
-        "flutter",
-        "flutter_blue_plus_platform_interface"
-      ]
-    },
-    {
-      "name": "flutter_blue_plus_android",
-      "version": "7.0.4",
-      "dependencies": [
-        "flutter",
-        "flutter_blue_plus_platform_interface"
-      ]
-    },
-    {
-      "name": "bluez",
-      "version": "0.8.3",
-      "dependencies": [
-        "dbus"
-      ]
-    },
-    {
-      "name": "dbus",
-      "version": "0.7.15",
-      "dependencies": [
-        "args",
-        "ffi",
-        "meta",
-        "xml"
-      ]
-    },
-    {
-      "name": "xml",
-      "version": "7.0.1",
-      "dependencies": [
-        "collection",
-        "meta",
-        "petitparser"
-      ]
-    },
-    {
-      "name": "petitparser",
-      "version": "7.0.2",
-      "dependencies": [
-        "collection",
-        "meta"
-      ]
-<<<<<<< HEAD
-=======
-    },
-    {
-      "name": "rxdart",
-      "version": "0.28.0",
-      "dependencies": []
-<<<<<<< Updated upstream
->>>>>>> 8020cfb (feat: AI Coach fallback chain + rule-based V2 + usage tracking)
-=======
-=======
->>>>>>> Stashed changes
->>>>>>> Stashed changes
     }
   ],
   "configVersion": 1

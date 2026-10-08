@@ -2,15 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../../core/bluetooth/ble_service.dart';
-<<<<<<< Updated upstream
 import '../../core/theme/app_colors.dart';
-<<<<<<< Updated upstream
 import '../../core/api/auth_api.dart';
-=======
-=======
-import '../../core/api/auth_api.dart';
->>>>>>> Stashed changes
->>>>>>> Stashed changes
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -18,108 +11,6 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-<<<<<<< Updated upstream
-      backgroundColor: AppColors.background,
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(vertical: 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              // Title
-              Padding(
-                padding: const EdgeInsets.only(top: 8, bottom: 24),
-                child: Text(
-                  'Eink Clock',
-                  style: GoogleFonts.nunito(
-                    fontSize: 34,
-                    fontWeight: FontWeight.w900,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-              ),
-
-              // Status Card
-              const _StatusCard(),
-
-              const SizedBox(height: 20),
-
-              // Menu Items
-              _MenuItem(
-                color: AppColors.cardYellow,
-                icon: Icons.access_time_rounded,
-                label: 'Cài đặt chung',
-                onTap: () => Navigator.pushNamed(context, '/settings'),
-              ),
-              const SizedBox(height: 12),
-              _MenuItem(
-                color: AppColors.cardBlue,
-                icon: Icons.monitor_rounded,
-                label: 'Các giao diện',
-                onTap: () => Navigator.pushNamed(context, '/interfaces'),
-              ),
-              const SizedBox(height: 12),
-              _MenuItem(
-                color: AppColors.cardPink,
-                icon: Icons.brush_rounded,
-                label: 'Thiết kế',
-                onTap: () => Navigator.pushNamed(context, '/design'),
-              ),
-              const SizedBox(height: 12),
-              _MenuItem(
-                color: AppColors.cardPurple,
-                icon: Icons.info_outline_rounded,
-                label: 'Cập nhật firmware',
-                onTap: () => Navigator.pushNamed(context, '/info'),
-              ),
-              const SizedBox(height: 12),
-              _MenuItem(
-                color: AppColors.cardTeal,
-                icon: Icons.calendar_month_rounded,
-                label: 'Lịch nhắc nhở tuần',
-                onTap: () => Navigator.pushNamed(context, '/schedule'),
-              ),
-              const SizedBox(height: 12),
-              _MenuItem(
-                color: const Color(0xFFFF6B6B),
-                icon: Icons.timer_rounded,
-                label: '⏱ Pomodoro AI',
-                onTap: () => Navigator.pushNamed(context, '/pomodoro'),
-              ),
-              const SizedBox(height: 12),
-              _MenuItem(
-                color: const Color(0xFF7C4DFF),
-                icon: Icons.psychology_rounded,
-                label: '🤖 AI Hub & Coach',
-                onTap: () => Navigator.pushNamed(context, '/ai-hub'),
-              ),
-              _MenuItem(
-                color: const Color(0xFFB2DFDB),
-                icon: Icons.favorite_rounded,
-                label: '🧠 Digital Wellbeing',
-                onTap: () => Navigator.pushNamed(context, '/wellbeing'),
-              ),
-              const SizedBox(height: 12),
-              _MenuItem(
-                color: const Color(0xFF00E5FF),
-                icon: Icons.watch_rounded,
-                label: '📺 Chế độ đồng hồ',
-                onTap: () => Navigator.pushNamed(context, '/clock_mode'),
-              ),
-              const SizedBox(height: 24),
-              _MenuItem(
-                color: const Color(0xFFE5E7EB),
-                icon: Icons.logout_rounded,
-                label: 'Đăng xuất',
-                onTap: () async {
-                  await AuthApi.logout();
-                  if (context.mounted) {
-                    Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
-                  }
-                },
-              ),
-            ],
-=======
       backgroundColor: const Color(0xFFF4F5F7), // Màu nền sáng, dịu mắt
       appBar: AppBar(
         backgroundColor: Colors.transparent,
@@ -131,7 +22,6 @@ class HomeScreen extends StatelessWidget {
             fontWeight: FontWeight.w900,
             color: const Color(0xFF1E293B),
             letterSpacing: -0.5,
->>>>>>> Stashed changes
           ),
         ),
         actions: [

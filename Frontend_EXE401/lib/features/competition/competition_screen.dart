@@ -26,6 +26,7 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
   final TextEditingController _roomNameController = TextEditingController();
   final TextEditingController _joinCodeController = TextEditingController();
   final TextEditingController _userIdController = TextEditingController(text: "user_bao");
+  int _durationDays = 7;
 
   @override
   void dispose() {
@@ -45,7 +46,7 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({
           "name": _roomNameController.text,
-          "duration_days": 7
+          "duration_days": _durationDays
         }),
       );
       if (res.statusCode == 200) {
@@ -194,7 +195,29 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
               children: [
                 TextField(
                   controller: _roomNameController,
-                  decoration: const InputDecoration(labelText: "Tên phòng mới (Ví dụ: Thi hết môn)"),
+                  decoration: const InputDecoration(
+                    labelText: "Tên phòng mới (Ví dụ: Thi hết môn)",
+                    border: OutlineInputBorder(),
+                    fillColor: Colors.white,
+                    filled: true,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<int>(
+                  value: _durationDays,
+                  decoration: const InputDecoration(
+                    labelText: "Thời gian thi đua",
+                    border: OutlineInputBorder(),
+                    fillColor: Colors.white,
+                    filled: true,
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 7, child: Text("1 Tuần (7 ngày)")),
+                    DropdownMenuItem(value: 30, child: Text("1 Tháng (30 ngày)")),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) setState(() => _durationDays = val);
+                  },
                 ),
                 const SizedBox(height: 12),
                 ElevatedButton(

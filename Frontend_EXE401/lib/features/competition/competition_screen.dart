@@ -6,9 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import '../../core/theme/app_colors.dart';
+import '../../core/constants/app_constants.dart';
 
-// Đổi lại base URL tuỳ môi trường của bạn (nếu chạy thật trên đt, đổi 127.0.0.1 thành IP mạng LAN)
-const String API_BASE = "http://127.0.0.1:8000/api/v1/competition";
+String get API_BASE => "${AppConstants.baseUrl}/api/v1/competition";
 
 class CompetitionScreen extends StatefulWidget {
   const CompetitionScreen({super.key});

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
+import 'package:provider/provider.dart';
 import '../../core/constants/app_constants.dart';
+import '../../core/bluetooth/ble_service.dart';
 import 'dart:convert';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -99,7 +101,7 @@ class _WeeklyScheduleScreenState extends State<WeeklyScheduleScreen> {
     final activeDays = _days.where((d) => d.isEnabled && d.note.isNotEmpty).toList();
 
     try {
-      // Xóa lịch cũ trên backend nếu làm tính năng đồng bộ 2 chiều (bỏ qua bước này ở MVP)
+      // 1. Lưu vào Database backend
       for (var day in activeDays) {
         await http.post(
           Uri.parse('${AppConstants.baseUrl}/api/schedules/'),
@@ -113,7 +115,34 @@ class _WeeklyScheduleScreenState extends State<WeeklyScheduleScreen> {
           }),
         );
       }
-      if (mounted) showSuccessSnackbar(context, 'Đã đồng bộ ${activeDays.length} nhắc nhở lên Database!');
+
+      // 2. Gửi Bluetooth (BLE) trực tiếp sang đồng hồ nếu đang kết nối
+      bool bleSuccess = false;
+      try {
+        final ble = context.read<BleService>();
+        if (ble.isConnected) {
+          final payload = {
+            "cmd": "SET_SCHEDULE",
+            "schedules": activeDays.map((d) {
+              return {
+                "day": _days.indexOf(d) + 2, // 2 = T2 ... 8 = CN
+                "day_name": d.dayName,
+                "time": _formatTime(d.displayTime),
+                "text": d.note,
+              };
+            }).toList(),
+          };
+          bleSuccess = await ble.sendJson(payload);
+        }
+      } catch (_) {}
+
+      if (mounted) {
+        if (bleSuccess) {
+          showSuccessSnackbar(context, '✅ Đã lưu và truyền ${activeDays.length} lịch sang đồng hồ thành công!');
+        } else {
+          showSuccessSnackbar(context, '✅ Đã lưu ${activeDays.length} nhắc nhở! (Kết nối Bluetooth để truyền sang đồng hồ)');
+        }
+      }
     } catch (e) {
       if (mounted) showErrorSnackbar(context, 'Lỗi kết nối máy chủ!');
     } finally {
@@ -187,7 +216,6 @@ class _WeeklyScheduleScreenState extends State<WeeklyScheduleScreen> {
                   }),
                   onEnabledChanged: (v) => setState(() => day.isEnabled = v),
                   onNoteChanged: (v) => day.note = v,
-                  onSlotChanged: (v) => setState(() => day.selectedSlot = v),
                   onTimePick: () async {
                     final picked = await showTimePicker(
                       context: context,
@@ -237,7 +265,6 @@ class _DayCard extends StatefulWidget {
   final VoidCallback onTap;
   final ValueChanged<bool> onEnabledChanged;
   final ValueChanged<String> onNoteChanged;
-  final ValueChanged<int> onSlotChanged;
   final VoidCallback onTimePick;
   final String Function(TimeOfDay) formatTime;
 
@@ -248,7 +275,6 @@ class _DayCard extends StatefulWidget {
     required this.onTap,
     required this.onEnabledChanged,
     required this.onNoteChanged,
-    required this.onSlotChanged,
     required this.onTimePick,
     required this.formatTime,
   });
@@ -437,58 +463,6 @@ class _DayCardState extends State<_DayCard> {
                       ),
                       contentPadding: const EdgeInsets.all(12),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // Slot selector
-                  Text(
-                    'Hiển thị tại slot:',
-                    style: GoogleFonts.nunito(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: List.generate(5, (i) {
-                      final slot = i + 1;
-                      final selected = day.selectedSlot == slot;
-                      return Expanded(
-                        child: GestureDetector(
-                          onTap: () => widget.onSlotChanged(slot),
-                          child: Container(
-                            margin: EdgeInsets.only(right: i < 4 ? 6 : 0),
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            decoration: BoxDecoration(
-                              color: selected ? day.color : Colors.white,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: selected ? Colors.black26 : Colors.black12,
-                              ),
-                            ),
-                            child: Column(
-                              children: [
-                                Text(
-                                  'Slot',
-                                  style: GoogleFonts.nunito(
-                                    fontSize: 10,
-                                    color: Colors.black54,
-                                  ),
-                                ),
-                                Text(
-                                  '$slot',
-                                  style: GoogleFonts.nunito(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    }),
                   ),
                   const SizedBox(height: 12),
 

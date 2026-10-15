@@ -118,9 +118,10 @@ class HomeScreen extends StatelessWidget {
                   onTap: () => Navigator.pushNamed(context, '/settings'),
                 ),
                 _ListMenuItem(
-                  icon: Icons.system_update_rounded,
-                  iconColor: Colors.green,
-                  title: 'Cập nhật Firmware',
+                  icon: Icons.info_outline_rounded,
+                  iconColor: Colors.indigo,
+                  title: 'Giới Thiệu & Thông Tin',
+                  subtitle: 'Thông số thiết bị & hệ sinh thái',
                   onTap: () => Navigator.pushNamed(context, '/info'),
                   showBorder: false,
                 ),

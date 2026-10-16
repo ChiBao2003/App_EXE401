@@ -71,6 +71,7 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
   final ScrollController _chatScrollController = ScrollController();
   int _durationDays = 7;
   bool _loadingUser = true;
+  String? _currentAuthUserId;
 
   @override
   void initState() {
@@ -86,6 +87,7 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
     try {
       final name = await AuthApi.getUserName();
       final id = await AuthApi.getUserId();
+      _currentAuthUserId = id;
       String resolvedUser = "";
       if (name != "Ban" && name.trim().isNotEmpty) {
         resolvedUser = name.trim();
@@ -673,6 +675,203 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
   void _showError(String msg) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.redAccent));
   void _showSuccess(String msg) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.green));
 
+  void _showChangeNicknameDialog() {
+    final oldName = _userIdController.text.trim();
+    final newNameController = TextEditingController(text: oldName);
+    bool isSubmitting = false;
+    String? errorMessage;
+
+    showDialog(
+      context: context,
+      barrierDismissible: !isSubmitting,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+            contentPadding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF7ED),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFFED7AA)),
+                  ),
+                  child: const Icon(Icons.badge_rounded, color: Color(0xFFEA580C), size: 22),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "Đổi Biệt Danh Thi Đua",
+                        style: GoogleFonts.nunito(fontWeight: FontWeight.w900, fontSize: 17),
+                      ),
+                      Text(
+                        "Cập nhật tên hiển thị trong phòng & bạn bè",
+                        style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.account_circle_outlined, size: 18, color: Colors.blueGrey),
+                      const SizedBox(width: 8),
+                      Text(
+                        "Tên hiện tại: ",
+                        style: GoogleFonts.nunito(fontSize: 12, color: Colors.grey.shade700),
+                      ),
+                      Text(
+                        oldName,
+                        style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  "Biệt danh mới của bạn:",
+                  style: GoogleFonts.nunito(fontWeight: FontWeight.bold, fontSize: 13, color: const Color(0xFF334155)),
+                ),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: newNameController,
+                  autofocus: true,
+                  maxLength: 25,
+                  decoration: InputDecoration(
+                    hintText: "VD: ChiBao_Pro, Baobao_99...",
+                    prefixIcon: const Icon(Icons.edit_outlined, size: 18),
+                    errorText: errorMessage,
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFFFA000), width: 1.5)),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50.withOpacity(0.6),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.blue.shade100),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.info_outline_rounded, size: 16, color: Colors.blueAccent),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          "Toàn bộ điểm tích lũy, phòng thi đua và danh sách bạn bè sẽ được chuyển giao đầy đủ sang tên mới.",
+                          style: TextStyle(fontSize: 11, color: Colors.blue.shade800, height: 1.3),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: isSubmitting ? null : () => Navigator.pop(ctx),
+                child: Text("Hủy", style: TextStyle(color: Colors.grey.shade600)),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFFD54F),
+                  foregroundColor: const Color(0xFF1E293B),
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                ),
+                onPressed: isSubmitting ? null : () async {
+                  final newName = newNameController.text.trim();
+                  if (newName.isEmpty) {
+                    setDialogState(() => errorMessage = "Vui lòng nhập biệt danh mới");
+                    return;
+                  }
+                  if (newName.length < 2) {
+                    setDialogState(() => errorMessage = "Biệt danh phải có tối thiểu 2 ký tự");
+                    return;
+                  }
+                  if (newName == oldName) {
+                    setDialogState(() => errorMessage = "Biệt danh mới phải khác biệt danh hiện tại");
+                    return;
+                  }
+
+                  setDialogState(() {
+                    isSubmitting = true;
+                    errorMessage = null;
+                  });
+
+                  try {
+                    final res = await http.post(
+                      Uri.parse('$API_BASE/nickname/update'),
+                      headers: {"Content-Type": "application/json"},
+                      body: jsonEncode({
+                        "old_nickname": oldName,
+                        "new_nickname": newName,
+                        "user_id": _currentAuthUserId,
+                      }),
+                    );
+
+                    if (res.statusCode == 200) {
+                      await AuthApi.updateUserName(newName);
+                      if (mounted) {
+                        setState(() {
+                          _userIdController.text = newName;
+                        });
+                      }
+                      Navigator.pop(ctx);
+                      _showSuccess("Đổi biệt danh sang '$newName' thành công! 🎉");
+                      await _fetchLobbyStats();
+                      await _fetchFriendsAndNotifications();
+                      if (currentRoomCode != null) {
+                        await _fetchLeaderboard(currentRoomCode!);
+                      }
+                    } else {
+                      final data = jsonDecode(res.body);
+                      setDialogState(() {
+                        isSubmitting = false;
+                        errorMessage = data["detail"] ?? "Đổi biệt danh thất bại";
+                      });
+                    }
+                  } catch (e) {
+                    setDialogState(() {
+                      isSubmitting = false;
+                      errorMessage = "Lỗi kết nối máy chủ";
+                    });
+                  }
+                },
+                child: isSubmitting
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Text("Xác nhận đổi", style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   // ============================================================
   // BUILD CHÍNH
   // ============================================================
@@ -1153,19 +1352,36 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
                       const SizedBox(height: 2),
                       Row(
                         children: [
-                          Icon(Icons.lock_outline_rounded, size: 11, color: Colors.grey.shade400),
+                          Icon(Icons.shield_outlined, size: 12, color: Colors.blueGrey.shade400),
                           const SizedBox(width: 4),
-                          Text(
-                            "Đồng bộ phiên đăng nhập • Không thể sửa đổi",
-                            style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                          Expanded(
+                            child: Text(
+                              "Bảo mật tài khoản • Nhấn [Đổi tên] để cập nhật biệt danh",
+                              style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                         ],
                       ),
                     ],
                   ),
                 ),
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.edit_rounded, size: 14),
+                  label: const Text("Đổi tên", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFFFF7ED),
+                    foregroundColor: const Color(0xFFEA580C),
+                    elevation: 0,
+                    side: const BorderSide(color: Color(0xFFFED7AA)),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onPressed: _showChangeNicknameDialog,
+                ),
+                const SizedBox(width: 4),
                 IconButton(
-                  icon: const Icon(Icons.refresh_rounded, color: Colors.grey),
+                  icon: const Icon(Icons.refresh_rounded, color: Colors.grey, size: 20),
                   tooltip: "Tải lại dữ liệu",
                   onPressed: () {
                     _fetchLobbyStats();

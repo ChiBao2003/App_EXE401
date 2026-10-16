@@ -79,6 +79,11 @@ class DirectMessageCreate(BaseModel):
     receiver_id: str
     message: str
 
+class NicknameUpdate(BaseModel):
+    old_nickname: str
+    new_nickname: str
+    user_id: Optional[str] = None
+
 # --- Rule-Based Scoring Logic ---
 def calculate_prs(work_min: int, completed: bool, pauses: int) -> int:
     """
@@ -754,6 +759,142 @@ async def get_friends_list(request: Request, user_id: str):
         "friends": friends,
         "sent_requests": sent_requests,
         "incoming_requests": incoming_requests
+    }
+
+@router.post("/nickname/update")
+async def update_nickname(request: Request, payload: NicknameUpdate):
+    """
+    Cập nhật tên biệt danh người dùng:
+    - Kiểm tra tính hợp lệ và không trùng lặp
+    - Cập nhật trong bảng users (display_name)
+    - Đồng bộ tất cả dữ liệu thi đua cũ (Groups, DailyStats, Friendships, DirectMessages, RoomMessages)
+    """
+    db = request.app.database
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not connected")
+
+    old_name = payload.old_nickname.strip()
+    new_name = payload.new_nickname.strip()
+
+    if not old_name:
+        raise HTTPException(status_code=400, detail="Biệt danh cũ không được để trống")
+    if not new_name:
+        raise HTTPException(status_code=400, detail="Biệt danh mới không được để trống")
+    if len(new_name) < 2 or len(new_name) > 30:
+        raise HTTPException(status_code=400, detail="Biệt danh phải có độ dài từ 2 đến 30 ký tự")
+    if old_name == new_name:
+        raise HTTPException(status_code=400, detail="Biệt danh mới phải khác biệt danh hiện tại")
+
+    # Kiểm tra xem new_name đã có người khác dùng chưa trong collection users
+    existing_user = await db["users"].find_one({"display_name": new_name})
+    if existing_user:
+        if payload.user_id and str(existing_user.get("_id")) == str(payload.user_id):
+            pass  # Chính là user này
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Biệt danh '{new_name}' đã có người sử dụng. Vui lòng chọn tên khác!"
+            )
+
+    # 1. Cập nhật trong collection users
+    try:
+        if payload.user_id:
+            await db["users"].update_one(
+                {"_id": payload.user_id},
+                {"$set": {"display_name": new_name}}
+            )
+        else:
+            await db["users"].update_one(
+                {"display_name": old_name},
+                {"$set": {"display_name": new_name}}
+            )
+    except Exception:
+        pass
+
+    # 2. Cập nhật trong Groups (members list)
+    try:
+        cursor_grp = db["Groups"].find({"members": old_name})
+        async for grp in cursor_grp:
+            updated_members = [new_name if m == old_name else m for m in grp.get("members", [])]
+            await db["Groups"].update_one(
+                {"_id": grp["_id"]},
+                {"$set": {"members": updated_members}}
+            )
+    except Exception:
+        pass
+
+    # 3. Cập nhật trong DailyStats
+    try:
+        cursor_stats = db["DailyStats"].find({"user_id": old_name})
+        async for stat in cursor_stats:
+            date_str = stat.get("date")
+            existing_stat = await db["DailyStats"].find_one({"user_id": new_name, "date": date_str})
+            if existing_stat:
+                await db["DailyStats"].update_one(
+                    {"_id": existing_stat["_id"]},
+                    {"$inc": {
+                        "total_score": stat.get("total_score", 0),
+                        "total_work_min": stat.get("total_work_min", 0),
+                        "completed_sessions": stat.get("completed_sessions", 0)
+                    }}
+                )
+                await db["DailyStats"].delete_one({"_id": stat["_id"]})
+            else:
+                await db["DailyStats"].update_one(
+                    {"_id": stat["_id"]},
+                    {"$set": {"user_id": new_name}}
+                )
+    except Exception:
+        pass
+
+    # 4. Cập nhật trong Friendships
+    try:
+        await db["Friendships"].update_many(
+            {"user_a": old_name},
+            {"$set": {"user_a": new_name}}
+        )
+        await db["Friendships"].update_many(
+            {"user_b": old_name},
+            {"$set": {"user_b": new_name}}
+        )
+        await db["Friendships"].update_many(
+            {"requester_id": old_name},
+            {"$set": {"requester_id": new_name}}
+        )
+        await db["Friendships"].update_many(
+            {"receiver_id": old_name},
+            {"$set": {"receiver_id": new_name}}
+        )
+    except Exception:
+        pass
+
+    # 5. Cập nhật trong DirectMessages
+    try:
+        await db["DirectMessages"].update_many(
+            {"sender_id": old_name},
+            {"$set": {"sender_id": new_name}}
+        )
+        await db["DirectMessages"].update_many(
+            {"receiver_id": old_name},
+            {"$set": {"receiver_id": new_name}}
+        )
+    except Exception:
+        pass
+
+    # 6. Cập nhật trong RoomMessages
+    try:
+        await db["RoomMessages"].update_many(
+            {"sender_id": old_name},
+            {"$set": {"sender_id": new_name}}
+        )
+    except Exception:
+        pass
+
+    return {
+        "status": "success",
+        "old_nickname": old_name,
+        "new_nickname": new_name,
+        "message": f"Đổi biệt danh thành '{new_name}' thành công! Toàn bộ điểm số và bạn bè đã được đồng bộ."
     }
 
 # ==========================================

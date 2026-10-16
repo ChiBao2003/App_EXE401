@@ -1,4 +1,4 @@
-﻿"""
+"""
 api/v1/auth_router.py - Endpoints xac thuc nguoi dung (Register / Login / Me)
 """
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -36,7 +36,16 @@ async def register(
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Email nay da duoc dang ky"
+            detail="Email này đã được đăng ký"
+        )
+
+    # Chống mạo danh: Biệt danh (display_name) phải là duy nhất
+    clean_name = payload.display_name.strip()
+    existing_name = await db["users"].find_one({"display_name": clean_name})
+    if existing_name:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Biệt danh '{clean_name}' đã có người sử dụng. Vui lòng chọn biệt danh khác!"
         )
 
     user_id = str(uuid.uuid4())

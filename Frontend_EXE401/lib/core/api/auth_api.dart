@@ -1,4 +1,4 @@
-﻿import "package:shared_preferences/shared_preferences.dart";
+import "package:shared_preferences/shared_preferences.dart";
 import "api_client.dart";
 
 /// Auth API - Dang ky / Dang nhap / Lay thong tin user.
@@ -63,5 +63,10 @@ class AuthApi {
   static Future<String> getUserName() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString("user_name") ?? "Ban";
+  }
+
+  static Future<void> updateUserName(String newName) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString("user_name", newName);
   }
 }

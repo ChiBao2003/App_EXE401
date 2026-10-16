@@ -1,11 +1,13 @@
 // ==========================================
 // THI_DUA_FEATURE_START (By Gemini)
 // ==========================================
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import '../../core/constants/app_constants.dart';
+import '../../core/api/auth_api.dart';
 
 String get API_BASE => "${AppConstants.baseUrl}/api/v1/competition";
 
@@ -33,8 +35,16 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
   List<dynamic> _globalTopUsers = [];
   bool _loadingLobbyStats = false;
 
-  // Danh sách Bạn Bè & Tin nhắn
+  // Danh sách Bạn Bè, Lời mời & Tin nhắn
   List<String> _friendsList = [];
+  List<String> _sentRequests = [];
+  List<Map<String, dynamic>> _incomingRequests = [];
+  int _incomingCount = 0;
+  int _unreadDmsCount = 0;
+  Map<String, int> _unreadBySender = {};
+  int get _totalFriendNotifications => _incomingCount + _unreadDmsCount;
+  Timer? _friendsPollingTimer;
+
   List<dynamic> _roomMessages = [];
   bool _loadingRoomMsgs = false;
   int _lastReadMsgCount = 0;
@@ -55,20 +65,56 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
   // Controllers
   final TextEditingController _roomNameController = TextEditingController();
   final TextEditingController _joinCodeController = TextEditingController();
-  final TextEditingController _userIdController = TextEditingController(text: "user_bao");
+  final TextEditingController _userIdController = TextEditingController();
   final TextEditingController _roomMsgController = TextEditingController();
   final TextEditingController _dmController = TextEditingController();
   final ScrollController _chatScrollController = ScrollController();
   int _durationDays = 7;
+  bool _loadingUser = true;
 
   @override
   void initState() {
     super.initState();
-    _fetchLobbyStats();
+    _loadCurrentUser();
+    _friendsPollingTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (mounted) _fetchFriendsAndNotifications();
+    });
+  }
+
+  Future<void> _loadCurrentUser() async {
+    setState(() => _loadingUser = true);
+    try {
+      final name = await AuthApi.getUserName();
+      final id = await AuthApi.getUserId();
+      String resolvedUser = "";
+      if (name != "Ban" && name.trim().isNotEmpty) {
+        resolvedUser = name.trim();
+      } else if (id != null && id.trim().isNotEmpty) {
+        resolvedUser = id.trim();
+      } else {
+        resolvedUser = "user_bao";
+      }
+      if (mounted) {
+        setState(() {
+          _userIdController.text = resolvedUser;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _userIdController.text = "user_bao";
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _loadingUser = false);
+    }
+    await _fetchLobbyStats();
+    await _fetchFriendsAndNotifications();
   }
 
   @override
   void dispose() {
+    _friendsPollingTimer?.cancel();
     _roomNameController.dispose();
     _joinCodeController.dispose();
     _userIdController.dispose();
@@ -103,14 +149,8 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
         _globalTopUsers = data["top_users"] ?? [];
       }
 
-      // 3. Danh sách bạn bè
-      final resFriends = await http.get(
-        Uri.parse('$API_BASE/friends/$userId')
-      );
-      if (resFriends.statusCode == 200) {
-        final data = jsonDecode(resFriends.body);
-        _friendsList = List<String>.from(data["friends"] ?? []);
-      }
+      // 3. Danh sách bạn bè & thông báo
+      await _fetchFriendsAndNotifications();
     } catch (_) {}
     if (mounted) setState(() => _loadingLobbyStats = false);
   }
@@ -297,8 +337,41 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
   }
 
   // ============================================================
-  // 4. KẾT BẠN & CHAT RIÊNG (1-1)
+  // 4. KẾT BẠN & CHAT RIÊNG (1-1) (HƯỚNG 1: DUYỆT LỜI MỜI & THÔNG BÁO)
   // ============================================================
+  Future<void> _fetchFriendsAndNotifications() async {
+    final userId = _userIdController.text.trim();
+    if (userId.isEmpty) return;
+    try {
+      // 1. Lấy trạng thái thông báo chưa đọc
+      final resUnread = await http.get(Uri.parse('$API_BASE/friends/unread-status?user_id=$userId'));
+      if (resUnread.statusCode == 200) {
+        final data = jsonDecode(resUnread.body);
+        if (mounted) {
+          setState(() {
+            _incomingCount = (data["incoming_count"] as num?)?.toInt() ?? 0;
+            _unreadDmsCount = (data["unread_dms_count"] as num?)?.toInt() ?? 0;
+            final map = data["unread_by_sender"] as Map<String, dynamic>? ?? {};
+            _unreadBySender = map.map((k, v) => MapEntry(k, (v as num).toInt()));
+          });
+        }
+      }
+
+      // 2. Lấy danh sách bạn bè & danh sách lời mời
+      final resFriends = await http.get(Uri.parse('$API_BASE/friends/$userId'));
+      if (resFriends.statusCode == 200) {
+        final data = jsonDecode(resFriends.body);
+        if (mounted) {
+          setState(() {
+            _friendsList = List<String>.from(data["friends"] ?? []);
+            _sentRequests = List<String>.from(data["sent_requests"] ?? []);
+            _incomingRequests = List<Map<String, dynamic>>.from(data["incoming_requests"] ?? []);
+          });
+        }
+      }
+    } catch (_) {}
+  }
+
   Future<void> _addFriend(String targetFriend) async {
     final myId = _userIdController.text.trim();
     if (targetFriend == myId) return;
@@ -309,16 +382,45 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
         body: jsonEncode({"user_id": myId, "friend_id": targetFriend}),
       );
       if (res.statusCode == 200) {
-        _showSuccess("Đã kết bạn với $targetFriend! 🤝");
-        await _fetchLobbyStats();
+        final data = jsonDecode(res.body);
+        _showSuccess(data["message"] ?? "Đã gửi lời mời kết bạn! 🤝");
+        await _fetchFriendsAndNotifications();
+      } else {
+        final data = jsonDecode(res.body);
+        _showError(data["detail"] ?? "Lỗi gửi lời mời kết bạn");
       }
     } catch (_) {
       _showError("Lỗi gửi lời mời kết bạn");
     }
   }
 
-  void _openDirectChat(String friendId) {
-    showModalBottomSheet(
+  Future<void> _respondFriend(String requesterId, String action) async {
+    final myId = _userIdController.text.trim();
+    try {
+      final res = await http.post(
+        Uri.parse('$API_BASE/friends/respond'),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          "user_id": myId,
+          "requester_id": requesterId,
+          "action": action,
+        }),
+      );
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        _showSuccess(data["message"] ?? (action == "accept" ? "Đã đồng ý kết bạn! 🤝" : "Đã từ chối lời mời."));
+        await _fetchFriendsAndNotifications();
+      } else {
+        final data = jsonDecode(res.body);
+        _showError(data["detail"] ?? "Thao tác thất bại");
+      }
+    } catch (_) {
+      _showError("Lỗi kết nối máy chủ");
+    }
+  }
+
+  void _openDirectChat(String friendId) async {
+    await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -327,60 +429,243 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
         friendId: friendId,
       ),
     );
+    await _fetchFriendsAndNotifications();
   }
 
   void _showFriendsDialog() {
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            const Icon(Icons.people_alt_rounded, color: Colors.amber),
-            const SizedBox(width: 8),
-            Text("Bạn Bè Thi Đua (${_friendsList.length})", style: GoogleFonts.nunito(fontWeight: FontWeight.bold)),
-          ],
-        ),
-        content: SizedBox(
-          width: 340,
-          child: _friendsList.isEmpty
-              ? Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 24),
-                  child: Text(
-                    "Chưa có bạn bè nào. Hãy vào phòng thi đua và nhấn nút [+ Kết Bạn] bên cạnh đối thủ nhé!",
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.nunito(color: Colors.grey.shade600),
-                  ),
-                )
-              : ListView.separated(
-                  shrinkWrap: true,
-                  itemCount: _friendsList.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
-                  itemBuilder: (ctx, idx) {
-                    final f = _friendsList[idx];
-                    return ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                      leading: CircleAvatar(
-                        backgroundColor: Colors.amber.shade200,
-                        child: Text(f.substring(0, 1).toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
-                      ),
-                      title: Text(f, style: GoogleFonts.nunito(fontWeight: FontWeight.w700)),
-                      subtitle: const Text("🤝 Bạn cùng thi đua", style: TextStyle(fontSize: 12)),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.chat_bubble_rounded, color: Colors.blueAccent),
-                        tooltip: "Nhắn tin riêng",
-                        onPressed: () {
-                          Navigator.pop(ctx);
-                          _openDirectChat(f);
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          return DefaultTabController(
+            length: 2,
+            child: AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              titlePadding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+              contentPadding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              title: Column(
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.people_alt_rounded, color: Colors.amber),
+                      const SizedBox(width: 8),
+                      Text("Quản Lý Bạn Bè", style: GoogleFonts.nunito(fontWeight: FontWeight.bold, fontSize: 18)),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.refresh_rounded, size: 20, color: Colors.grey),
+                        tooltip: "Làm mới",
+                        onPressed: () async {
+                          await _fetchFriendsAndNotifications();
+                          setDialogState(() {});
                         },
                       ),
-                    );
-                  },
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  TabBar(
+                    labelColor: Colors.blueAccent,
+                    unselectedLabelColor: Colors.grey,
+                    indicatorColor: Colors.blueAccent,
+                    labelStyle: GoogleFonts.nunito(fontWeight: FontWeight.bold, fontSize: 13),
+                    tabs: [
+                      Tab(
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Text("Lời mời"),
+                            if (_incomingRequests.isNotEmpty) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                decoration: BoxDecoration(color: Colors.redAccent, borderRadius: BorderRadius.circular(10)),
+                                child: Text("${_incomingRequests.length}", style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold)),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      Tab(
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text("Bạn bè (${_friendsList.length})"),
+                            if (_unreadDmsCount > 0) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                decoration: BoxDecoration(color: Colors.redAccent, borderRadius: BorderRadius.circular(10)),
+                                child: Text("$_unreadDmsCount", style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold)),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: 380,
+                height: 340,
+                child: TabBarView(
+                  children: [
+                    // TAB 1: LỜI MỜI KẾT BẠN
+                    _incomingRequests.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.mark_email_read_outlined, size: 48, color: Colors.grey.shade400),
+                                const SizedBox(height: 10),
+                                Text("Không có lời mời kết bạn nào", style: GoogleFonts.nunito(fontWeight: FontWeight.bold, color: Colors.grey.shade700)),
+                                const SizedBox(height: 4),
+                                Text("Khi có người gửi lời mời, bạn sẽ thấy ở đây.", textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                              ],
+                            ),
+                          )
+                        : ListView.separated(
+                            padding: const EdgeInsets.only(top: 8),
+                            itemCount: _incomingRequests.length,
+                            separatorBuilder: (_, __) => const Divider(height: 1),
+                            itemBuilder: (ctx, idx) {
+                              final req = _incomingRequests[idx];
+                              final reqId = (req['requester_id'] ?? "").toString();
+                              final time = (req['time'] ?? "").toString();
+                              return ListTile(
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                leading: CircleAvatar(
+                                  backgroundColor: Colors.teal.shade100,
+                                  child: Text(
+                                    reqId.isNotEmpty ? reqId[0].toUpperCase() : "?",
+                                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.teal),
+                                  ),
+                                ),
+                                title: Text(reqId, style: GoogleFonts.nunito(fontWeight: FontWeight.w700)),
+                                subtitle: Text(time.isNotEmpty ? "Lúc $time" : "Muốn kết bạn thi đua", style: const TextStyle(fontSize: 11)),
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    ElevatedButton(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.green,
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                        minimumSize: Size.zero,
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                      ),
+                                      onPressed: () async {
+                                        await _respondFriend(reqId, "accept");
+                                        setDialogState(() {});
+                                      },
+                                      child: const Text("Đồng ý", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    OutlinedButton(
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: Colors.redAccent,
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                        minimumSize: Size.zero,
+                                        side: BorderSide(color: Colors.red.shade200),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                      ),
+                                      onPressed: () async {
+                                        await _respondFriend(reqId, "decline");
+                                        setDialogState(() {});
+                                      },
+                                      child: const Text("Từ chối", style: TextStyle(fontSize: 11)),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+
+                    // TAB 2: DANH SÁCH BẠN BÈ
+                    _friendsList.isEmpty
+                        ? Center(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.people_outline_rounded, size: 48, color: Colors.grey.shade400),
+                                  const SizedBox(height: 10),
+                                  Text("Chưa có bạn bè nào", style: GoogleFonts.nunito(fontWeight: FontWeight.bold, color: Colors.grey.shade700)),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    "Hãy vào phòng thi đua và nhấn nút [+ Kết bạn] bên cạnh đối thủ để cùng kết nối nhé!",
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
+                        : ListView.separated(
+                            padding: const EdgeInsets.only(top: 8),
+                            itemCount: _friendsList.length,
+                            separatorBuilder: (_, __) => const Divider(height: 1),
+                            itemBuilder: (ctx, idx) {
+                              final f = _friendsList[idx];
+                              final unreadCount = _unreadBySender[f] ?? 0;
+                              return ListTile(
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                leading: CircleAvatar(
+                                  backgroundColor: Colors.amber.shade200,
+                                  child: Text(
+                                    f.isNotEmpty ? f[0].toUpperCase() : "?",
+                                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87),
+                                  ),
+                                ),
+                                title: Row(
+                                  children: [
+                                    Text(f, style: GoogleFonts.nunito(fontWeight: FontWeight.w700)),
+                                    if (unreadCount > 0) ...[
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                        decoration: BoxDecoration(color: Colors.redAccent, borderRadius: BorderRadius.circular(10)),
+                                        child: Text("$unreadCount mới", style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold)),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                                subtitle: const Text("🤝 Bạn cùng thi đua", style: TextStyle(fontSize: 12)),
+                                trailing: IconButton(
+                                  icon: Stack(
+                                    clipBehavior: Clip.none,
+                                    children: [
+                                      const Icon(Icons.chat_bubble_rounded, color: Colors.blueAccent),
+                                      if (unreadCount > 0)
+                                        Positioned(
+                                          right: -2,
+                                          top: -2,
+                                          child: Container(
+                                            width: 8,
+                                            height: 8,
+                                            decoration: const BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                  tooltip: "Nhắn tin riêng",
+                                  onPressed: () {
+                                    Navigator.pop(ctx);
+                                    _openDirectChat(f);
+                                  },
+                                ),
+                              );
+                            },
+                          ),
+                  ],
                 ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Đóng")),
-        ],
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Đóng")),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
@@ -405,19 +690,25 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
               clipBehavior: Clip.none,
               children: [
                 const Icon(Icons.group_rounded, color: Colors.black87),
-                if (_friendsList.isNotEmpty)
+                if (_totalFriendNotifications > 0)
                   Positioned(
-                    right: -2,
-                    top: -2,
+                    right: -4,
+                    top: -4,
                     child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: const BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle),
-                      child: Text("${_friendsList.length}", style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold)),
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.redAccent,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        "$_totalFriendNotifications",
+                        style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
                     ),
                   ),
               ],
             ),
-            tooltip: "Danh sách bạn bè",
+            tooltip: "Bạn bè & Lời mời ($_totalFriendNotifications)",
             onPressed: _showFriendsDialog,
           ),
         ],
@@ -785,37 +1076,101 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
           ),
           const SizedBox(height: 20),
 
-          // Tên hiển thị người dùng
+          // Thông tin tài khoản thi đua (Khóa cố định theo phiên đăng nhập)
           Container(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.grey.shade200),
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 8, offset: const Offset(0, 3))],
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
             ),
             child: Row(
               children: [
-                CircleAvatar(
-                  backgroundColor: const Color(0xFFFFD54F),
-                  child: const Icon(Icons.person, color: Colors.black87),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextField(
-                    controller: _userIdController,
-                    decoration: const InputDecoration(
-                      labelText: "Tên hiển thị của bạn",
-                      border: InputBorder.none,
-                      isDense: true,
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFFFD54F), Color(0xFFFFA000)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
                     ),
-                    onSubmitted: (_) => _fetchLobbyStats(),
+                    shape: BoxShape.circle,
+                    boxShadow: [BoxShadow(color: Colors.amber.withOpacity(0.3), blurRadius: 6, offset: const Offset(0, 2))],
+                  ),
+                  child: Center(
+                    child: Text(
+                      _userIdController.text.isNotEmpty ? _userIdController.text[0].toUpperCase() : "U",
+                      style: GoogleFonts.nunito(fontSize: 20, fontWeight: FontWeight.w900, color: const Color(0xFF1E293B)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            "Tài khoản của bạn",
+                            style: GoogleFonts.nunito(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                            decoration: BoxDecoration(
+                              color: Colors.green.shade50,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: Colors.green.shade200),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.verified_rounded, size: 11, color: Colors.green),
+                                SizedBox(width: 3),
+                                Text(
+                                  "Đã xác thực",
+                                  style: TextStyle(fontSize: 10, color: Colors.green, fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      _loadingUser
+                          ? const SizedBox(
+                              height: 18,
+                              width: 100,
+                              child: LinearProgressIndicator(minHeight: 2),
+                            )
+                          : Text(
+                              _userIdController.text,
+                              style: GoogleFonts.nunito(fontSize: 16, fontWeight: FontWeight.w900, color: const Color(0xFF0F172A)),
+                            ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Icon(Icons.lock_outline_rounded, size: 11, color: Colors.grey.shade400),
+                          const SizedBox(width: 4),
+                          Text(
+                            "Đồng bộ phiên đăng nhập • Không thể sửa đổi",
+                            style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
                 IconButton(
                   icon: const Icon(Icons.refresh_rounded, color: Colors.grey),
-                  tooltip: "Tải lại thống kê",
-                  onPressed: _fetchLobbyStats,
+                  tooltip: "Tải lại dữ liệu",
+                  onPressed: () {
+                    _fetchLobbyStats();
+                    _fetchFriendsAndNotifications();
+                  },
                 ),
               ],
             ),
@@ -1975,6 +2330,9 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
                         final memberId = lb['user_id'];
                         final isMe = memberId == _userIdController.text.trim();
                         final isFriend = _friendsList.contains(memberId);
+                        final isIncomingReq = _incomingRequests.any((r) => r['requester_id'] == memberId);
+                        final isSentReq = _sentRequests.contains(memberId);
+                        final unreadDm = _unreadBySender[memberId] ?? 0;
                         final isTop1 = index == 0;
                         final isTop3 = index < 3;
 
@@ -2022,6 +2380,16 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
                                             const Padding(
                                               padding: EdgeInsets.only(left: 6),
                                               child: Icon(Icons.handshake_rounded, size: 16, color: Colors.green),
+                                            )
+                                          else if (isIncomingReq && !isMe)
+                                            const Padding(
+                                              padding: EdgeInsets.only(left: 6),
+                                              child: Icon(Icons.mark_email_unread_rounded, size: 16, color: Colors.teal),
+                                            )
+                                          else if (isSentReq && !isMe)
+                                            const Padding(
+                                              padding: EdgeInsets.only(left: 6),
+                                              child: Icon(Icons.hourglass_top_rounded, size: 14, color: Colors.grey),
                                             ),
                                         ],
                                       ),
@@ -2048,14 +2416,51 @@ class _CompetitionScreenState extends State<CompetitionScreen> {
                                           child: Container(
                                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                             decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.green.shade200)),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                const Icon(Icons.chat, size: 12, color: Colors.green),
+                                                const SizedBox(width: 4),
+                                                const Text("Chat", style: TextStyle(fontSize: 11, color: Colors.green, fontWeight: FontWeight.bold)),
+                                                if (unreadDm > 0) ...[
+                                                  const SizedBox(width: 4),
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                                    decoration: BoxDecoration(color: Colors.redAccent, borderRadius: BorderRadius.circular(8)),
+                                                    child: Text("$unreadDm", style: const TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.bold)),
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                          ),
+                                        )
+                                      else if (isIncomingReq)
+                                        InkWell(
+                                          onTap: () => _respondFriend(memberId, "accept"),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                            decoration: BoxDecoration(color: Colors.teal.shade50, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.teal.shade300)),
                                             child: const Row(
                                               mainAxisSize: MainAxisSize.min,
                                               children: [
-                                                Icon(Icons.chat, size: 12, color: Colors.green),
+                                                Icon(Icons.check_circle_outline_rounded, size: 12, color: Colors.teal),
                                                 SizedBox(width: 4),
-                                                Text("Chat", style: TextStyle(fontSize: 11, color: Colors.green, fontWeight: FontWeight.bold)),
+                                                Text("Chấp nhận", style: TextStyle(fontSize: 11, color: Colors.teal, fontWeight: FontWeight.bold)),
                                               ],
                                             ),
+                                          ),
+                                        )
+                                      else if (isSentReq)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                          decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade300)),
+                                          child: const Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.hourglass_top_rounded, size: 12, color: Colors.grey),
+                                              SizedBox(width: 4),
+                                              Text("Đã mời", style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold)),
+                                            ],
                                           ),
                                         )
                                       else
@@ -2257,33 +2662,43 @@ class _DirectChatModalState extends State<_DirectChatModal> {
   bool _loading = false;
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  Timer? _dmPollingTimer;
 
   @override
   void initState() {
     super.initState();
     _fetchDMs();
+    _dmPollingTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (mounted) _fetchDMs(silent: true);
+    });
   }
 
   @override
   void dispose() {
+    _dmPollingTimer?.cancel();
     _controller.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
-  Future<void> _fetchDMs() async {
-    setState(() => _loading = true);
+  Future<void> _fetchDMs({bool silent = false}) async {
+    if (!silent) setState(() => _loading = true);
     try {
       final res = await http.get(
         Uri.parse('$API_BASE/friends/messages?user_id=${widget.myUserId}&friend_id=${widget.friendId}')
       );
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
-        setState(() => _messages = data["messages"] ?? []);
-        _scrollToBottom();
+        final list = data["messages"] ?? [];
+        if (list.length != _messages.length) {
+          if (mounted) {
+            setState(() => _messages = list);
+            _scrollToBottom();
+          }
+        }
       }
     } catch (_) {}
-    setState(() => _loading = false);
+    if (!silent && mounted) setState(() => _loading = false);
   }
 
   Future<void> _sendDM() async {

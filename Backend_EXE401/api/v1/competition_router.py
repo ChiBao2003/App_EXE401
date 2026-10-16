@@ -69,6 +69,11 @@ class FriendAdd(BaseModel):
     user_id: str
     friend_id: str
 
+class FriendRespond(BaseModel):
+    user_id: str
+    requester_id: str
+    action: str # accept | decline
+
 class DirectMessageCreate(BaseModel):
     sender_id: str
     receiver_id: str
@@ -262,8 +267,11 @@ async def get_leaderboard(
     
     results = await db["DailyStats"].aggregate(pipeline).to_list(None)
     
+    # 1. Thêm các thành viên đã có điểm (sắp xếp giảm dần theo điểm)
+    scored_user_ids = set()
     leaderboard = []
     for idx, r in enumerate(results):
+        scored_user_ids.add(r["_id"])
         leaderboard.append({
             "rank": idx + 1,
             "user_id": r["_id"],
@@ -271,6 +279,19 @@ async def get_leaderboard(
             "work_min": r["total_work_min"],
             "completed": r.get("total_completed", 0)
         })
+        
+    # 2. Thêm các thành viên trong phòng chưa có điểm (mặc định 0 điểm, xếp cuối)
+    unscored_members = [m for m in members if m not in scored_user_ids]
+    current_rank = len(leaderboard) + 1
+    for m in unscored_members:
+        leaderboard.append({
+            "rank": current_rank,
+            "user_id": m,
+            "score": 0,
+            "work_min": 0,
+            "completed": 0
+        })
+        current_rank += 1
         
     return {
         "room_code": room_code, 
@@ -496,11 +517,11 @@ async def send_room_message(request: Request, room_code: str, payload: RoomMessa
     }
 
 # ==========================================
-# 3. API KẾT BẠN & CHAT RIÊNG (1-1)
+# 3. API KẾT BẠN & CHAT RIÊNG (1-1) (HƯỚNG 1: DUYỆT LỜI MỜI & THÔNG BÁO)
 # ==========================================
 @router.post("/friends/add")
 async def add_friend(request: Request, payload: FriendAdd):
-    """Kết bạn giữa 2 người tham gia thi đua"""
+    """Gửi lời mời kết bạn hoặc tự động chấp nhận nếu cả hai cùng kết bạn"""
     db = request.app.database
     if db is None:
         raise HTTPException(status_code=500, detail="Database not connected")
@@ -510,31 +531,148 @@ async def add_friend(request: Request, payload: FriendAdd):
     if not u1 or not u2 or u1 == u2:
         raise HTTPException(status_code=400, detail="Người dùng không hợp lệ")
 
-    friend_pair = sorted([u1, u2])
-    doc = {
-        "user_a": friend_pair[0],
-        "user_b": friend_pair[1],
-        "status": "accepted",
-        "created_at": get_now()
-    }
-    await db["Friendships"].update_one(
-        {"user_a": friend_pair[0], "user_b": friend_pair[1]},
-        {"$setOnInsert": doc},
-        upsert=True
-    )
-    return {"status": "success", "message": f"Đã kết bạn thành công với {u2}!"}
+    u_a = min(u1, u2)
+    u_b = max(u1, u2)
 
-@router.get("/friends/messages")
-async def get_direct_messages(request: Request, user_id: str, friend_id: str, limit: int = 50):
-    """Lấy lịch sử chat 1-1 giữa 2 bạn bè"""
+    existing = await db["Friendships"].find_one({"user_a": u_a, "user_b": u_b})
+    now = get_now()
+
+    if existing:
+        status = existing.get("status")
+        if status == "accepted":
+            return {"status": "already_friends", "is_friend": True, "message": f"Bạn và {u2} đã là bạn bè rồi."}
+        
+        req_id = existing.get("requester_id")
+        if status == "pending":
+            if req_id == u1:
+                return {"status": "pending_sent", "is_friend": False, "message": f"Bạn đã gửi lời mời kết bạn tới {u2} rồi, đang chờ chấp nhận."}
+            else:
+                # Đối phương (u2) đã gửi trước đó -> u1 kết bạn lại => Tự động chấp nhận luôn!
+                await db["Friendships"].update_one(
+                    {"_id": existing["_id"]},
+                    {"$set": {"status": "accepted", "updated_at": now}}
+                )
+                return {"status": "accepted", "is_friend": True, "message": f"Hai bạn cùng muốn kết bạn! Đã trở thành bạn bè với {u2}! 🤝"}
+        
+        # Nếu trước đó từng bị declined hoặc trạng thái khác -> Gửi lại lời mời pending
+        await db["Friendships"].update_one(
+            {"_id": existing["_id"]},
+            {"$set": {"requester_id": u1, "receiver_id": u2, "status": "pending", "updated_at": now}}
+        )
+        return {"status": "pending", "is_friend": False, "message": f"Đã gửi lại lời mời kết bạn tới {u2}."}
+
+    # Tạo quan hệ mới với trạng thái pending
+    doc = {
+        "user_a": u_a,
+        "user_b": u_b,
+        "requester_id": u1,
+        "receiver_id": u2,
+        "status": "pending",
+        "created_at": now,
+        "updated_at": now
+    }
+    await db["Friendships"].insert_one(doc)
+    return {"status": "pending", "is_friend": False, "message": f"Đã gửi lời mời kết bạn tới {u2}. Đang chờ phản hồi!"}
+
+@router.post("/friends/respond")
+async def respond_friend_request(request: Request, payload: FriendRespond):
+    """Chấp nhận (accept) hoặc từ chối (decline) lời mời kết bạn"""
     db = request.app.database
     if db is None:
         raise HTTPException(status_code=500, detail="Database not connected")
 
+    user_id = payload.user_id.strip()
+    requester_id = payload.requester_id.strip()
+    action = payload.action.strip().lower()
+
+    if action not in ["accept", "decline"]:
+        raise HTTPException(status_code=400, detail="Hành động không hợp lệ (chỉ accept hoặc decline)")
+
+    u_a = min(user_id, requester_id)
+    u_b = max(user_id, requester_id)
+
+    friendship = await db["Friendships"].find_one({
+        "user_a": u_a,
+        "user_b": u_b,
+        "requester_id": requester_id,
+        "receiver_id": user_id,
+        "status": "pending"
+    })
+
+    if not friendship:
+        raise HTTPException(status_code=404, detail="Không tìm thấy lời mời kết bạn hợp lệ từ người này")
+
+    now = get_now()
+    if action == "accept":
+        await db["Friendships"].update_one(
+            {"_id": friendship["_id"]},
+            {"$set": {"status": "accepted", "updated_at": now}}
+        )
+        return {"status": "success", "action": "accept", "message": f"Đã đồng ý kết bạn với {requester_id}! 🤝"}
+    else:
+        await db["Friendships"].update_one(
+            {"_id": friendship["_id"]},
+            {"$set": {"status": "declined", "updated_at": now}}
+        )
+        return {"status": "success", "action": "decline", "message": f"Đã từ chối lời mời kết bạn từ {requester_id}."}
+
+@router.get("/friends/unread-status")
+async def get_unread_status(request: Request, user_id: str):
+    """Lấy số thông báo lời mời kết bạn và số tin nhắn riêng chưa đọc của user"""
+    db = request.app.database
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not connected")
+
+    uid = user_id.strip()
+
+    # 1. Đếm số lời mời kết bạn gửi đến tôi đang chờ duyệt
+    incoming_count = await db["Friendships"].count_documents({
+        "receiver_id": uid,
+        "status": "pending"
+    })
+
+    # 2. Đếm số tin nhắn riêng gửi đến tôi chưa đọc (nhóm theo người gửi)
+    pipeline = [
+        {"$match": {"receiver_id": uid, "is_read": False}},
+        {"$group": {"_id": "$sender_id", "count": {"$sum": 1}}}
+    ]
+    cursor = db["DirectMessages"].aggregate(pipeline)
+    unread_by_sender = {}
+    total_unread_dms = 0
+    async for row in cursor:
+        sender = row["_id"]
+        cnt = row["count"]
+        unread_by_sender[sender] = cnt
+        total_unread_dms += cnt
+
+    return {
+        "user_id": uid,
+        "incoming_count": incoming_count,
+        "unread_dms_count": total_unread_dms,
+        "unread_by_sender": unread_by_sender,
+        "total_notifications": incoming_count + total_unread_dms
+    }
+
+@router.get("/friends/messages")
+async def get_direct_messages(request: Request, user_id: str, friend_id: str, limit: int = 50):
+    """Lấy lịch sử chat 1-1 và tự động đánh dấu đã đọc các tin nhắn gửi đến tôi"""
+    db = request.app.database
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database not connected")
+
+    uid = user_id.strip()
+    fid = friend_id.strip()
+
+    # Đánh dấu đã đọc các tin nhắn gửi đến user_id từ friend_id
+    await db["DirectMessages"].update_many(
+        {"receiver_id": uid, "sender_id": fid, "is_read": False},
+        {"$set": {"is_read": True}}
+    )
+
     cursor = db["DirectMessages"].find({
         "$or": [
-            {"sender_id": user_id, "receiver_id": friend_id},
-            {"sender_id": friend_id, "receiver_id": user_id}
+            {"sender_id": uid, "receiver_id": fid},
+            {"sender_id": fid, "receiver_id": uid}
         ]
     }).sort("created_at", 1).limit(limit)
 
@@ -547,13 +685,14 @@ async def get_direct_messages(request: Request, user_id: str, friend_id: str, li
             "sender_id": doc.get("sender_id"),
             "receiver_id": doc.get("receiver_id"),
             "message": doc.get("message"),
+            "is_read": doc.get("is_read", True),
             "time": time_str
         })
-    return {"user_id": user_id, "friend_id": friend_id, "messages": messages}
+    return {"user_id": uid, "friend_id": fid, "messages": messages}
 
 @router.post("/friends/messages")
 async def send_direct_message(request: Request, payload: DirectMessageCreate):
-    """Gửi tin nhắn riêng 1-1 cho bạn bè"""
+    """Gửi tin nhắn riêng 1-1 cho bạn bè kèm cờ is_read: False"""
     db = request.app.database
     if db is None:
         raise HTTPException(status_code=500, detail="Database not connected")
@@ -563,9 +702,10 @@ async def send_direct_message(request: Request, payload: DirectMessageCreate):
 
     now = get_now()
     doc = {
-        "sender_id": payload.sender_id,
-        "receiver_id": payload.receiver_id,
+        "sender_id": payload.sender_id.strip(),
+        "receiver_id": payload.receiver_id.strip(),
         "message": payload.message.strip(),
+        "is_read": False,
         "created_at": now
     }
     res = await db["DirectMessages"].insert_one(doc)
@@ -577,21 +717,44 @@ async def send_direct_message(request: Request, payload: DirectMessageCreate):
 
 @router.get("/friends/{user_id}")
 async def get_friends_list(request: Request, user_id: str):
-    """Lấy danh sách bạn bè của user"""
+    """Lấy danh sách bạn bè, lời mời đã gửi và lời mời nhận được"""
     db = request.app.database
     if db is None:
         raise HTTPException(status_code=500, detail="Database not connected")
 
+    uid = user_id.strip()
     cursor = db["Friendships"].find({
-        "$or": [{"user_a": user_id}, {"user_b": user_id}],
-        "status": "accepted"
+        "$or": [{"user_a": uid}, {"user_b": uid}]
     })
-    friends = []
-    async for doc in cursor:
-        friend_name = doc["user_b"] if doc["user_a"] == user_id else doc["user_a"]
-        friends.append(friend_name)
 
-    return {"user_id": user_id, "friends": friends}
+    friends = []
+    sent_requests = []
+    incoming_requests = []
+
+    async for doc in cursor:
+        status = doc.get("status")
+        created = doc.get("created_at")
+        time_str = _format_msg_time(created) if created else ""
+        other_user = doc["user_b"] if doc["user_a"] == uid else doc["user_a"]
+
+        if status == "accepted":
+            friends.append(other_user)
+        elif status == "pending":
+            req_id = doc.get("requester_id")
+            if req_id == uid:
+                sent_requests.append(other_user)
+            elif doc.get("receiver_id") == uid or req_id == other_user:
+                incoming_requests.append({
+                    "requester_id": other_user,
+                    "time": time_str
+                })
+
+    return {
+        "user_id": uid,
+        "friends": friends,
+        "sent_requests": sent_requests,
+        "incoming_requests": incoming_requests
+    }
 
 # ==========================================
 # THI_DUA_FEATURE_END

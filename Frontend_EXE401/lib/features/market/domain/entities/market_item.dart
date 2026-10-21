@@ -1,7 +1,7 @@
 /// features/market/domain/entities/market_item.dart
 /// Tầng Domain - Pure Dart entity.
 /// Không phụ thuộc vào Flutter Widget hay HTTP package nào.
-library market_entity;
+library;
 
 class MarketItem {
   final String id;
@@ -20,6 +20,14 @@ class MarketItem {
     required this.likes,
   });
 
+  /// Title lấy từ designJson hoặc fallback
+  String get title {
+    if (designJson.containsKey('title') && designJson['title'] != null) {
+      return designJson['title'].toString();
+    }
+    return '';
+  }
+
   /// Preview text lấy từ design_json (computed property)
   String get previewText {
     try {
@@ -29,5 +37,23 @@ class MarketItem {
       }
     } catch (_) {}
     return '12:00';
+  }
+
+  MarketItem copyWith({
+    String? id,
+    String? author,
+    String? timestamp,
+    String? thumbnailUrl,
+    Map<String, dynamic>? designJson,
+    int? likes,
+  }) {
+    return MarketItem(
+      id: id ?? this.id,
+      author: author ?? this.author,
+      timestamp: timestamp ?? this.timestamp,
+      thumbnailUrl: thumbnailUrl ?? this.thumbnailUrl,
+      designJson: designJson ?? this.designJson,
+      likes: likes ?? this.likes,
+    );
   }
 }

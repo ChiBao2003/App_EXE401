@@ -1,7 +1,7 @@
 /// features/market/data/models/market_model.dart
 /// Tầng Data - Data model biết cách fromJson/toJson.
 /// Extend MarketItem entity để thêm serialization.
-library market_model;
+library;
 
 import '../../domain/entities/market_item.dart';
 
@@ -27,7 +27,8 @@ class MarketModel extends MarketItem {
     // Xu ly thumbnail URL - Flutter Image.asset can nhan dung dinh dang
     // VD: 'assets/images/market_1.png' → giu nguyen
     // VD: 'images/market_1.png' → giu nguyen (errorBuilder se xu ly)
-    String thumbUrl = json['thumbnail_url']?.toString() ?? 'assets/images/market_1.png';
+    String thumbUrl =
+        json['thumbnail_url']?.toString() ?? 'assets/images/market_1.png';
     // Dam bao path khong bi double 'assets/assets/'
     if (thumbUrl.startsWith('assets/assets/')) {
       thumbUrl = thumbUrl.replaceFirst('assets/', '');
@@ -49,9 +50,9 @@ class MarketModel extends MarketItem {
 
   /// Chuyển MarketModel → JSON để gửi lên API
   Map<String, dynamic> toJson() => {
-        'author': author,
-        'thumbnail_url': thumbnailUrl,
-        'design_json': designJson,
-        'likes': likes,
-      };
+    'author': author,
+    'thumbnail_url': thumbnailUrl,
+    'design_json': designJson,
+    'likes': likes,
+  };
 }

@@ -1,7 +1,7 @@
 /// features/market/domain/repositories/market_repository.dart
 /// Tầng Domain - Abstract interface cho Market Repository.
 /// Provider sẽ chỉ giao tiếp qua interface này.
-library market_repository;
+library;
 
 import '../entities/market_item.dart';
 

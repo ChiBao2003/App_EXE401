@@ -1,0 +1,467 @@
+--- a/src/Esp32Pj.ino
++++ b/src/Esp32Pj.ino
+@@ -389,7 +389,7 @@
+ 
+ void setup() {
+   Serial.begin(115200);
+-  Serial.printf("[BUILD] NAV_MODE36_SELECT35_OK34 | %s %s\n",__DATE__,__TIME__);
++  Serial.printf("[BUILD] NAV_MODE36_SELECT35_OK34 OK34_TRACE_V1 | %s %s\n",__DATE__,__TIME__);
+   Serial.printf("[BUILD] Source: %s\n",__FILE__);
+   analogReadResolution(10);
+ 
+@@ -697,9 +697,11 @@
+ void processSerialCommand(String sCmd) {
+     sCmd.trim();
+     if (sCmd == "INPUTS") {
++      Serial.printf("[BUILD] OK34_TRACE_V1 | %s %s | %s\n",__DATE__,__TIME__,__FILE__);
+       Serial.printf("[INPUT] MODE36=%d OK34=%d SELECT35=%d touch=%d mode=%d\n",
+                     digitalRead(BTN_MODE), digitalRead(BTN_ACTION1), digitalRead(BTN_ACTION2),
+                     touchEnabled, (int)currentState);
++      logControlState("SNAPSHOT",KeyEvent::None);
+     } else if (sCmd == "BEEP") {
+       startBeep(3,100,2000);
+       Serial.println("[IO] BEEP: 3 x 100 ms, GPIO23, 2000 Hz");
+@@ -860,8 +862,32 @@
+   return true;
+ }
+ 
++void logControlState(const char* stage,KeyEvent event) {
++  const char* modes[]={"CLOCK","POMODORO","TIMER","BLUETOOTH"};
++  const char* screens[]={"CLOCK","TASK_SELECT","POMODORO_CONTROLS",
++                         "TIMER_PRESETS","TIMER_CONTROLS","BLUETOOTH"};
++  const char* pomoControls[]={"+5m","-5m","START/PAUSE","RESET"};
++  const char* timerControls[]={"PAUSE/RESUME","STOP"};
++  const char* btControls[]={"PREV","PLAY","NEXT"};
++  const int screen=currentControlScreen();
++  const char* focus="NONE";
++  if (controlFocus>=0 && controlFocus<currentControlCount()) {
++    if (screen==0) focus="THEME";
++    else if (screen==1) focus=taskTypeLabels[controlFocus];
++    else if (screen==2) focus=pomoControls[controlFocus];
++    else if (screen==3) focus=timerLabels[controlFocus];
++    else if (screen==4) focus=timerControls[controlFocus];
++    else focus=btControls[controlFocus];
++  }
++  Serial.printf("[NAV %s] at=%lu event=%s mode=%s screen=%s controlFocus=%d(%s) task=%s running=%d remaining=%d alarm=%d notif=%d\n",
++                stage,(unsigned long)millis(),keyEventName(event),modes[int(currentState)],
++                screens[screen],controlFocus,focus,current_pomo_task_type.c_str(),
++                pomoRunning,pomoTime,isAlarmActive,notifActive);
++}
++
+ void activateFocusedControl() {
+   syncControlFocus();
++  logControlState("ACTIVATE",KeyEvent::Ok);
+   if (controlFocus<0) return;
+   const uint32_t now=millis();
+   if (currentState==MODE_CLOCK) {
+@@ -941,7 +967,11 @@
+   updateBackgroundTimers();
+   syncControlFocus();
+   lastBtnPress=millis();
+-  if (dismissInputAlert()) return; // First press only dismisses, including MODE.
++  logControlState("RECEIVED",event);
++  if (dismissInputAlert()) {
++    logControlState("ALERT_DISMISSED",event);
++    return; // First press only dismisses, including MODE.
++  }
+   if (event==KeyEvent::Mode) {
+     startBeep(1,40,2200);
+     currentState=(AppState)((currentState+1)%NUM_MODES);
+@@ -949,17 +979,19 @@
+     stateChanged=true;
+   } else if (event==KeyEvent::Select) {
+     const int count=currentControlCount();
+-    if (count==0) return;
++    if (count==0) { logControlState("NO_CONTROLS",event); return; }
+     startBeep(1,40,2200);
+     setControlFocus((controlFocus+1)%count);
+   } else if (event==KeyEvent::Ok) {
+-    if (currentControlCount()==0) return;
++    if (currentControlCount()==0) { logControlState("NO_CONTROLS",event); return; }
+     startBeep(1,40,2200);
+     activateFocusedControl();
+   }
++  logControlState("DONE",event);
+ }
+ 
+ void handleButtons() {
++  serviceInputDiagnostics();
+   const bool connected=a2dp_sink.is_connected();
+   if (connected!=isBluetoothConnected) {
+     isBluetoothConnected=connected;
+@@ -969,8 +1001,8 @@
+   KeyEvent event;
+   if (!readKeyEvent(event)) return;
+   touchLatch.suppressUntilRelease(millis());
+-  Serial.printf("[INPUT] key=%d raw(MODE36,OK34,SELECT35)=0x%X mode=%d\n",
+-                int(event),rawButtonLevels(),int(currentState));
++  Serial.printf("[INPUT] event=%s raw(MODE36,OK34,SELECT35)=0x%X mode=%d controlFocus=%d source=GPIO\n",
++                keyEventName(event),rawButtonLevels(),int(currentState),controlFocus);
+   handleNavigationEvent(event);
+ }
+ 
+--- a/src/io_service.cpp
++++ b/src/io_service.cpp
+@@ -9,8 +9,50 @@
+               SELECT_PIN=BUTTON_SELECT_PIN, BUZZER_PIN=23;
+ constexpr int BUZZER_CHANNEL=4, BUZZER_RESOLUTION=10, BUZZER_DUTY=512;
+ struct BeepCommand { int count, onMs, frequency; };
+-QueueHandle_t keyQueue=nullptr, beepQueue=nullptr;
++struct QueuedKey { KeyEvent event; uint32_t sequence, pressedAt; };
++enum class TraceStage : uint8_t { Raw, Stable, Enqueue, QueueFull };
++struct InputTrace {
++  TraceStage stage;
++  uint32_t at, sequence;
++  KeyEvent event;
++  uint8_t gpio, level;
++};
++QueueHandle_t keyQueue=nullptr, beepQueue=nullptr, traceQueue=nullptr;
+ volatile uint8_t buttonLevels=7;
++volatile uint32_t traceDropped=0;
++uint32_t keySequence=0;
++
++// The 5 ms sampler never waits for UART output. Diagnostics use a separate
++// bounded queue, so even raw contact chatter cannot block key delivery.
++void traceInput(TraceStage stage,uint32_t at,uint32_t sequence,
++                KeyEvent event,uint8_t gpio,uint8_t level) {
++  const InputTrace trace={stage,at,sequence,event,gpio,level};
++  if (traceQueue && xQueueSend(traceQueue,&trace,0)!=pdTRUE) ++traceDropped;
++}
++
++void sampleButtons(NavigationButtons& buttons,uint32_t now) {
++  static bool sampled=false;
++  static uint8_t previousLevels=7;
++  buttonLevels=(digitalRead(MODE_PIN)?1:0) | (digitalRead(OK_PIN)?2:0) |
++               (digitalRead(SELECT_PIN)?4:0);
++  const uint8_t pins[3]={MODE_PIN,OK_PIN,SELECT_PIN};
++  for (uint8_t i=0;i<3;++i) {
++    const bool down=!(buttonLevels&(1<<i));
++    const bool wasDown=buttons.down(i);
++    if (i==1 && (!sampled || ((previousLevels^buttonLevels)&2)))
++      traceInput(TraceStage::Raw,now,0,KeyEvent::None,OK_PIN,!down);
++    const KeyEvent event=buttons.update(i,down,now);
++    if (i==1 && (!sampled || wasDown!=buttons.down(i)))
++      traceInput(TraceStage::Stable,now,0,event,OK_PIN,!buttons.down(i));
++    if (event==KeyEvent::None) continue;
++    const QueuedKey key={event,++keySequence,now};
++    const bool sent=xQueueSend(keyQueue,&key,0)==pdTRUE;
++    traceInput(sent?TraceStage::Enqueue:TraceStage::QueueFull,
++               now,key.sequence,event,pins[i],!down);
++  }
++  previousLevels=buttonLevels;
++  sampled=true;
++}
+ 
+ void ioTask(void*) {
+   NavigationButtons buttons;
+@@ -36,18 +78,7 @@
+   TickType_t wake=xTaskGetTickCount();
+   for (;;) {
+     const uint32_t now=millis();
+-    buttonLevels=(digitalRead(MODE_PIN)?1:0) | (digitalRead(OK_PIN)?2:0) |
+-                 (digitalRead(SELECT_PIN)?4:0);
+-    KeyEvent events[3]={KeyEvent::None,KeyEvent::None,KeyEvent::None};
+-    for (uint8_t i=0;i<3;++i)
+-      events[i]=buttons.update(i,!(buttonLevels&(1<<i)),now);
+-    for (KeyEvent event:events) {
+-      if (event!=KeyEvent::None)
+-        Serial.printf("[IO] key=%u at=%lu raw=0x%X\n", unsigned(event),
+-                      (unsigned long)now, buttonLevels);
+-      if (event!=KeyEvent::None && xQueueSend(keyQueue,&event,0)!=pdTRUE)
+-        Serial.println("[IO] WARNING: key event queue full");
+-    }
++    sampleButtons(buttons,now);
+     BeepCommand command;
+     bool changedFrequency=false;
+     if (xQueueReceive(beepQueue,&command,0)==pdTRUE) {
+@@ -82,24 +113,61 @@
+ bool beginIoService() {
+   pinMode(MODE_PIN,INPUT); pinMode(OK_PIN,INPUT); pinMode(SELECT_PIN,INPUT);
+   pinMode(BUZZER_PIN,OUTPUT); digitalWrite(BUZZER_PIN,LOW);
+-  keyQueue=xQueueCreate(16,sizeof(KeyEvent));
++  keyQueue=xQueueCreate(16,sizeof(QueuedKey));
+   beepQueue=xQueueCreate(1,sizeof(BeepCommand));
+   if (!keyQueue || !beepQueue) {
+     if (keyQueue) { vQueueDelete(keyQueue); keyQueue=nullptr; }
+     if (beepQueue) { vQueueDelete(beepQueue); beepQueue=nullptr; }
+     return false;
+   }
++  traceQueue=xQueueCreate(48,sizeof(InputTrace));
++  if (!traceQueue) Serial.println("[INPUT] WARNING: diagnostics queue unavailable");
+   if (xTaskCreate(ioTask,"smarttime_io",3072,nullptr,2,nullptr)!=pdPASS) {
+     vQueueDelete(keyQueue); vQueueDelete(beepQueue);
+     keyQueue=nullptr; beepQueue=nullptr;
++    if (traceQueue) { vQueueDelete(traceQueue); traceQueue=nullptr; }
+     return false;
+   }
+   return true;
+ }
+ bool readKeyEvent(KeyEvent& event) {
+-  return keyQueue && xQueueReceive(keyQueue,&event,0)==pdTRUE;
++  QueuedKey key;
++  if (!keyQueue || xQueueReceive(keyQueue,&key,0)!=pdTRUE) return false;
++  event=key.event;
++  Serial.printf("[KEY DEQUEUE] id=%lu event=%s pressedAt=%lu age=%lu ms\n",
++                (unsigned long)key.sequence,keyEventName(event),
++                (unsigned long)key.pressedAt,(unsigned long)(millis()-key.pressedAt));
++  return true;
+ }
+-void discardKeyEvents() { if (keyQueue) xQueueReset(keyQueue); }
++void serviceInputDiagnostics() {
++  InputTrace trace;
++  for (int budget=0;budget<6 && traceQueue && xQueueReceive(traceQueue,&trace,0)==pdTRUE;++budget) {
++    if (trace.stage==TraceStage::Raw || trace.stage==TraceStage::Stable) {
++      Serial.printf("[GPIO34 %s] at=%lu level=%u %s event=%s\n",
++                    trace.stage==TraceStage::Raw?"RAW":"STABLE",
++                    (unsigned long)trace.at,trace.level,trace.level?"RELEASED":"PRESSED",
++                    keyEventName(trace.event));
++    } else {
++      Serial.printf("[KEY %s] id=%lu at=%lu gpio=%u event=%s\n",
++                    trace.stage==TraceStage::Enqueue?"ENQUEUE":"QUEUE_FULL",
++                    (unsigned long)trace.sequence,(unsigned long)trace.at,
++                    trace.gpio,keyEventName(trace.event));
++    }
++  }
++  static uint32_t reportedDropped=0;
++  const uint32_t dropped=traceDropped;
++  if (dropped!=reportedDropped) {
++    reportedDropped=dropped;
++    Serial.printf("[INPUT] Diagnostic records dropped=%lu (key queue is separate)\n",
++                  (unsigned long)dropped);
++  }
++}
++void discardKeyEvents() {
++  if (!keyQueue) return;
++  Serial.printf("[KEY DISCARD] pending=%u reason=alert-dismiss\n",
++                unsigned(uxQueueMessagesWaiting(keyQueue)));
++  xQueueReset(keyQueue);
++}
+ void requestBeep(int count,int onMs,int frequency) {
+   if (!beepQueue) return;
+   BeepCommand command={constrain(count,0,20),constrain(onMs,10,5000),
+--- a/src/io_service.h
++++ b/src/io_service.h
+@@ -3,6 +3,7 @@
+ constexpr uint8_t BUTTON_MODE_PIN=36, BUTTON_OK_PIN=34, BUTTON_SELECT_PIN=35;
+ bool beginIoService();
+ bool readKeyEvent(KeyEvent& event);
++void serviceInputDiagnostics();
+ void discardKeyEvents();
+ void requestBeep(int count, int onMs, int frequency);
+ void silenceBuzzer();
+--- a/src/io_logic.h
++++ b/src/io_logic.h
+@@ -3,6 +3,15 @@
+ #include "input_latch.h"
+ 
+ enum class KeyEvent : uint8_t { None, Mode, Select, Ok };
++
++inline const char* keyEventName(KeyEvent event) {
++  switch (event) {
++    case KeyEvent::Mode: return "MODE";
++    case KeyEvent::Select: return "SELECT";
++    case KeyEvent::Ok: return "OK";
++    default: return "NONE";
++  }
++}
+ 
+ // Same raw-change/stable-level debounce as the hardware test (active low
+ // is converted to pressed=true by io_service). No internal GPIO pull-ups.
+@@ -35,6 +44,7 @@
+     if (index>=3 || !buttons_[index].update(pressed,now)) return KeyEvent::None;
+     return index==0?KeyEvent::Mode:index==1?KeyEvent::Ok:KeyEvent::Select;
+   }
++  bool down(uint8_t index) const { return index<3 && buttons_[index].down(); }
+  private:
+   DebouncedButton buttons_[3];
+ };
+--- a/test/navigation_test.cpp
++++ b/test/navigation_test.cpp
+@@ -39,7 +39,13 @@
+   int hour(){return 12;} int minute(){return 0;} int second(){return 0;}
+ };
+ struct Rtc { bool lostPower(){return false;} DateTime now(){return {};} } rtc;
+-struct SerialMock { template<class... T> void printf(const char*,T...){} } Serial;
++struct SerialMock {
++  std::string log;
++  template<class... T> void printf(const char* format,T... args) {
++    char line[512]; std::snprintf(line,sizeof(line),format,args...); log+=line;
++  }
++  void println(const char* line){log+=line; log+='\n';}
++} Serial;
+ struct Prefs { int writes=0; void putInt(const char*,int){++writes;} } prefs;
+ struct Audio {
+   bool connected=false;
+@@ -64,10 +70,25 @@
+ } tft;
+ uint32_t millis(){return nowMs;}
+ int constrain(int n,int low,int high){return std::max(low,std::min(high,n));}
+-std::deque<KeyEvent> keys;
+-bool readKeyEvent(KeyEvent& e){if(keys.empty())return false;e=keys.front();keys.pop_front();return true;}
+-void discardKeyEvents(){keys.clear();}
+-uint8_t rawButtonLevels(){return 7;}
++// Simulate FreeRTOS's byte-copy queue, not readKeyEvent or the GPIO sampler.
++struct FakeQueue { size_t capacity,itemSize; std::deque<std::vector<uint8_t>> items; };
++using QueueHandle_t=FakeQueue*;
++const int pdTRUE=1;
++QueueHandle_t xQueueCreate(size_t capacity,size_t itemSize){return new FakeQueue{capacity,itemSize,{}};}
++int xQueueSend(QueueHandle_t q,const void* item,int){
++  if(!q || q->items.size()>=q->capacity)return 0;
++  const auto bytes=static_cast<const uint8_t*>(item);
++  q->items.emplace_back(bytes,bytes+q->itemSize);return pdTRUE;
++}
++int xQueueReceive(QueueHandle_t q,void* item,int){
++  if(!q || q->items.empty())return 0;
++  memcpy(item,q->items.front().data(),q->itemSize);q->items.pop_front();return pdTRUE;
++}
++void xQueueReset(QueueHandle_t q){q->items.clear();}
++unsigned uxQueueMessagesWaiting(QueueHandle_t q){return unsigned(q->items.size());}
++int gpioLevels[40]={0};
++int digitalRead(int pin){return gpioLevels[pin];}
++#include "../.pio/io_under_test.inc"
+ int silenceCalls=0, beepCalls=0, completedSends=0, cancelledSends=0;
+ void stopBuzzer(){++silenceCalls;}
+ void startBeep(int,int,int){++beepCalls;}
+@@ -79,7 +100,8 @@
+ 
+ int failures=0,checks=0;
+ void check(bool ok,const char* name){++checks;printf("%s: %s\n",ok?"PASS":"FAIL",name);if(!ok)++failures;}
+-void press(KeyEvent e){keys.push_back(e);handleButtons();}
++void queueKey(KeyEvent e){const QueuedKey key={e,++keySequence,nowMs};xQueueSend(keyQueue,&key,0);}
++void press(KeyEvent e){queueKey(e);handleButtons();}
+ void render(){syncControlFocus();drawControlFocus(stateChanged);stateChanged=false;}
+ void resetFixture() {
+   currentState=MODE_CLOCK;pomoPhase=PHASE_WORK;stateChanged=true;
+@@ -96,11 +118,32 @@
+   current_pomo_task_type="General";pomoStartTimeStr[0]=0;
+   a2dp_sink.connected=false;a2dp_sink.prevCalls=a2dp_sink.playCalls=a2dp_sink.nextCalls=0;
+   silenceCalls=beepCalls=completedSends=cancelledSends=prefs.writes=0;
+-  keys.clear();tft.clearLog();tft.outlines.clear();
++  if(!keyQueue)keyQueue=xQueueCreate(16,sizeof(QueuedKey));
++  if(!traceQueue)traceQueue=xQueueCreate(48,sizeof(InputTrace));
++  xQueueReset(keyQueue);xQueueReset(traceQueue);traceDropped=0;
++  gpioLevels[36]=gpioLevels[34]=gpioLevels[35]=1;buttonLevels=7;
++  tft.clearLog();tft.outlines.clear();
++  Serial.log.clear();
+ }
+ void enter(AppState screen) {currentState=screen;stateChanged=true;syncControlFocus();}
+ void clockRoundTrip() {for(int i=0;i<4;++i)press(KeyEvent::Mode);}
+ int main(){
++  // GPIO34's second press must START the task selected by the first OK.
++  resetFixture();enter(MODE_POMODORO);press(KeyEvent::Select);
++  check(controlFocus==0 && pomoSelectingTask && current_pomo_task_type=="General",
++        "SELECT focuses Coding without confirming");
++  press(KeyEvent::Ok);
++  check(!pomoSelectingTask && current_pomo_task_type=="Coding" && selectedTaskTypeIndex==0 &&
++        controlFocus==2 && !pomoRunning,"first OK confirms Coding and focuses START/PAUSE");
++  press(KeyEvent::Ok);
++  check(pomoRunning && !pomoSelectingTask && current_pomo_task_type=="Coding",
++        "second OK starts Coding Pomodoro");
++  nowMs+=1000;updateBackgroundTimers();
++  check(pomoTime==1499,"Coding countdown advances after second OK");
++  check(Serial.log.find("screen=TASK_SELECT controlFocus=0(Coding)")!=std::string::npos &&
++        Serial.log.find("[NAV ACTIVATE]")!=std::string::npos &&
++        Serial.log.find("screen=POMODORO_CONTROLS controlFocus=2(START/PAUSE) task=Coding running=1")!=std::string::npos,
++        "OK trace includes received screen/focus, activation and resulting running state");
+   resetFixture();
+   press(KeyEvent::Select);render();
+   check(controlFocus==1 && currentThemeId==0 && prefs.writes==0,
+@@ -250,9 +293,9 @@
+ 
+   for(KeyEvent event: {KeyEvent::Mode,KeyEvent::Select,KeyEvent::Ok}) {
+     resetFixture();syncControlFocus();setControlFocus(1);isAlarmActive=notifActive=true;
+-    keys.push_back(event);keys.push_back(KeyEvent::Ok);handleButtons();
++    queueKey(event);queueKey(KeyEvent::Ok);handleButtons();
+     check(currentState==MODE_CLOCK && currentThemeId==0 && controlFocus==1 &&
+-          !isAlarmActive && !notifActive && silenceCalls==1 && beepCalls==0 && keys.empty(),
++          !isAlarmActive && !notifActive && silenceCalls==1 && beepCalls==0 && uxQueueMessagesWaiting(keyQueue)==0,
+           "first physical contact only dismisses alert and silences buzzer");
+   }
+   resetFixture();notifActive=true;handleTouchAt(20,235);
+@@ -261,6 +304,55 @@
+   resetFixture();pomoSelectingTask=timerSelecting=false;pomoRunning=timerRunning=true;
+   pomoTime=timerSeconds=5;notifActive=true;nowMs=3000;updateBackgroundTimers();
+   check(pomoTime==3 && timerSeconds==3 && notifActive,"notifications do not pause background timers");
++
++  // Full production route: digitalRead -> 25 ms debounce -> xQueueSend ->
++  // readKeyEvent -> handleNavigationEvent -> activateFocusedControl.
++  resetFixture();enter(MODE_POMODORO);
++  NavigationButtons physical;
++  auto sample=[&](uint32_t ms){
++    nowMs=ms;sampleButtons(physical,nowMs);updateBackgroundTimers();handleButtons();
++  };
++  sample(1000);
++  gpioLevels[35]=0;sample(1010);sample(1034);
++  check(controlFocus==3,"GPIO35 chatter under 25 ms does not change focus");
++  sample(1035);gpioLevels[35]=1;sample(1040);sample(1065);
++  check(controlFocus==0 && pomoSelectingTask,"physical SELECT35 focuses Coding");
++  gpioLevels[34]=0;sample(1070);gpioLevels[34]=1;sample(1080);
++  gpioLevels[34]=0;sample(1090);sample(1114);
++  check(pomoSelectingTask,"GPIO34 bounce does not confirm before 25 ms stable");
++  sample(1115);
++  check(!pomoSelectingTask && current_pomo_task_type=="Coding" && !pomoRunning && controlFocus==2,
++        "GPIO34 -> debounce -> real queue/readKeyEvent -> confirms Coding");
++  sample(4000);
++  check(!pomoRunning,"holding first OK does not also start Pomodoro");
++  gpioLevels[34]=1;sample(4010);sample(4035);
++  check(!pomoRunning,"releasing first OK does not start Pomodoro");
++  gpioLevels[34]=0;sample(4040);sample(4065);
++  check(pomoRunning,"second physical GPIO34 press starts Coding");
++  gpioLevels[34]=1;sample(4070);sample(4095);sample(5065);
++  check(pomoTime==1499 && pomoRunning,"release produces no extra action and countdown advances");
++  check(Serial.log.find("[GPIO34 RAW]")!=std::string::npos &&
++        Serial.log.find("[GPIO34 STABLE]")!=std::string::npos &&
++        Serial.log.find("[KEY ENQUEUE]")!=std::string::npos &&
++        Serial.log.find("[KEY DEQUEUE]")!=std::string::npos &&
++        Serial.log.find("event=OK")!=std::string::npos,
++        "raw/stable/queue/consumer OK diagnostics cover entire physical route");
++  // A full diagnostic queue must never prevent an OK from reaching the UI.
++  xQueueReset(traceQueue);
++  for(int i=0;i<60;++i)traceInput(TraceStage::Raw,nowMs,0,KeyEvent::None,34,1);
++  gpioLevels[34]=0;nowMs=5100;sampleButtons(physical,nowMs);
++  nowMs=5125;sampleButtons(physical,nowMs);
++  check(uxQueueMessagesWaiting(keyQueue)==1 && traceDropped>0,
++        "diagnostics overflow cannot block the independent OK event queue");
++  handleButtons();check(!pomoRunning,"OK still pauses when diagnostics overflow");
++  xQueueReset(keyQueue);xQueueReset(traceQueue);
++  for(int i=0;i<16;++i)queueKey(KeyEvent::Select);
++  gpioLevels[34]=1;nowMs=5200;sampleButtons(physical,nowMs);
++  nowMs=5225;sampleButtons(physical,nowMs);
++  gpioLevels[34]=0;nowMs=5300;sampleButtons(physical,nowMs);
++  nowMs=5325;sampleButtons(physical,nowMs);serviceInputDiagnostics();
++  check(Serial.log.find("[KEY QUEUE_FULL]")!=std::string::npos,
++        "actual key queue overflow is explicitly reported");
+   printf("Navigation checks: %d, failures: %d\n",checks,failures);
+   return failures?1:0;
+ }
+--- a/test/extract_navigation.ps1
++++ b/test/extract_navigation.ps1
+@@ -3,7 +3,7 @@
+ $projectRoot = Split-Path -Parent $PSScriptRoot
+ $sketch = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'src/Esp32Pj.ino'))
+ $functions = @('currentControlScreen', 'currentControlCount', 'syncControlFocus',
+-  'setControlFocus', 'dismissInputAlert', 'activateFocusedControl',
++  'setControlFocus', 'dismissInputAlert', 'logControlState', 'activateFocusedControl',
+   'handleNavigationEvent', 'handleButtons', 'drawNavigationHelp', 'drawControlFocus',
+   'handleTouchAt', 'updateBackgroundTimers', 'updateSelectionOutline',
+   'resetPomodoro', 'advancePomoPhase', 'resetTimerToSelection',
+@@ -21,3 +21,19 @@
+ [System.IO.File]::WriteAllText((Join-Path $projectRoot '.pio/navigation_under_test.inc'),
+   (($declarations -join "`n") + "`n" + ($blocks -join "`n`n")),
+   (New-Object System.Text.UTF8Encoding($false)))
++
++# Exercise the production GPIO sampler, queue send/receive and diagnostic
++# functions too. Only digitalRead, UART and FreeRTOS primitives are simulated.
++$io = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'src/io_service.cpp'))
++$start = $io.IndexOf('namespace {')
++$end = $io.IndexOf('void ioTask(')
++if ($start -lt 0 -or $end -le $start) { throw 'Missing production IO sampler' }
++$ioBlocks = @($io.Substring($start,$end-$start) + "`n}")
++foreach ($name in @('readKeyEvent','serviceInputDiagnostics','discardKeyEvents')) {
++  $match = [regex]::Match($io, '(?ms)^(?:void|bool) ' + $name + '\([^\r\n]*\)\s*\{.*?^}')
++  if (!$match.Success) { throw "Missing production IO function: $name" }
++  $ioBlocks += $match.Value
++}
++$ioBlocks += 'uint8_t rawButtonLevels() { return buttonLevels; }'
++[System.IO.File]::WriteAllText((Join-Path $projectRoot '.pio/io_under_test.inc'),
++  ($ioBlocks -join "`n`n"),(New-Object System.Text.UTF8Encoding($false)))

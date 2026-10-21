@@ -1,0 +1,9 @@
+[IO] READY next36=1 ok34=0 back35=1 PWM23=OK (released=1)
+[    43][E][Preferences.cpp:483] getString(): nvs_get_str len fail: alm_lb NOT_FOUND
+[TFT] readID=0x9341, fixed ILI9341=0x9341
+[  4075][E][Preferences.cpp:483] getString(): nvs_get_str len fail: pomo_pending NOT_FOUND
+[POMO_QUEUE] Init FIFO: count=0, head=0, tail=0
+BLE GATT started: ESP32_Pomodoro_Data
+[INPUT] Idle raw NEXT36=1 OK34=0 BACK35=1 (released=1; external pull-ups required)
+[INPUT] NEXT36=1 OK34=0 BACK35=1 touch=1 mode=0
+[IO] BEEP: 3 x 100 ms, GPIO23, 2000 Hz

@@ -158,12 +158,14 @@ async def get_usage_analytics(
 async def get_session_distractions(
     session_id: str = Query(..., description="Pomodoro session ID"),
     db: AsyncIOMotorDatabase = Depends(get_database),
+    user_id: str = Depends(get_current_user_id),
 ):
     """
-    Trả về danh sách các lần mất tập trung trong 1 phiên Pomodoro.
+    Trả về danh sách các lần mất tập trung trong 1 phiên Pomodoro của chính user này.
     """
     events = await db["usage_events"].find(
         {
+            "user_id": user_id,
             "pomodoro_session_id": session_id,
             "event_type": "distraction",
         }
@@ -179,14 +181,15 @@ async def get_session_distractions(
 async def get_ai_usage_context(
     date: Optional[str] = Query(None, description="YYYY-MM-DD, defaults to today"),
     db: AsyncIOMotorDatabase = Depends(get_database),
+    user_id: str = Depends(get_current_user_id),
 ):
     """
-    Trả về dữ liệu sử dụng đã format sẵn cho AI prompt.
+    Trả về dữ liệu sử dụng đã format sẵn cho AI prompt của chính user này.
     Dùng bởi ai_router.py khi tạo context cho Gemini/OpenAI.
     """
     target_date = date or datetime.utcnow().strftime("%Y-%m-%d")
 
-    summary = await db["daily_summaries"].find_one({"date": target_date})
+    summary = await db["daily_summaries"].find_one({"user_id": user_id, "date": target_date})
     if not summary:
         return {"context": "Chưa có dữ liệu sử dụng điện thoại cho ngày này.", "has_data": False}
 

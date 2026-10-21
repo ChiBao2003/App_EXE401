@@ -1,0 +1,48 @@
+{
+  "source_root": "C:\\EXE401_WEDAPP_PROJECT_REPORT\\App_EXE401\\Firmware_ESP32",
+  "target_root": "C:\\EXE401_WEDAPP_PROJECT_REPORT\\260911-122138-esp32doit-devkit-v1",
+  "files": [
+    {
+      "path": "src/Esp32Pj.ino",
+      "before_sha256": "75e2ba0302cf70e5439f3918d7f7bebc1327502db019f0dbd67dc3ed4f56aefa",
+      "after_sha256": "b0912e5cf89c445d7d7d2e714985c188f0e322f171245be555e52f8ade43e2bd",
+      "added": 38,
+      "removed": 6
+    },
+    {
+      "path": "src/io_service.cpp",
+      "before_sha256": "9ac10d0930525c29a8e44036edff170a17ac283b1603acf30d7654da0ad2db23",
+      "after_sha256": "6995e085e792581ff71b5d26abba5290d788df9fb6db5a50a392aa2b99dcb209",
+      "added": 84,
+      "removed": 16
+    },
+    {
+      "path": "src/io_service.h",
+      "before_sha256": "ac024463edfaa3086e3cfb9aa6ba38d0924d2695c2824c9f329e87ea19dfe62f",
+      "after_sha256": "52584374881c92510cef7c70a2170af727d297bc5257a7fbe657a8a301d49df5",
+      "added": 1,
+      "removed": 0
+    },
+    {
+      "path": "src/io_logic.h",
+      "before_sha256": "26c67b8804a82318066f3b01bc94778a2d0a7b759204c3c10eb097ac75a72095",
+      "after_sha256": "f1515ed4299abbb8620e931d0bbbcf4fda33689bce2b7c33339ab6fa170dc456",
+      "added": 10,
+      "removed": 0
+    },
+    {
+      "path": "test/navigation_test.cpp",
+      "before_sha256": "8287290ba806199cae300f21735ea831f70cc02f4b735a33a6bb376970c06b8b",
+      "after_sha256": "afbfb3e1ebbd7559b4015962301bd030e4531c181a74bf535f8874870660bc5e",
+      "added": 101,
+      "removed": 9
+    },
+    {
+      "path": "test/extract_navigation.ps1",
+      "before_sha256": "13aaaa54c042a507e78e8df3abb5de7d9bf9ace4cdd30d12b3792559da351ea7",
+      "after_sha256": "e443313964802a98ef2c8f8558c310b56f62ca3f8ee583b37d256aa588ed2acd",
+      "added": 17,
+      "removed": 1
+    }
+  ]
+}

@@ -1,0 +1,85 @@
+{
+  "title": "Poke Ball XL - Test",
+  "background": "0x10A9",
+  "elements": [
+    {
+      "t": "geometry",
+      "x": 63,
+      "y": 17,
+      "w": 194,
+      "h": 194,
+      "c": 0,
+      "g": "circle",
+      "f": true
+    },
+    {
+      "t": "geometry",
+      "x": 70,
+      "y": 24,
+      "w": 180,
+      "h": 180,
+      "c": 63488,
+      "g": "circle",
+      "f": true
+    },
+    {
+      "t": "bitmap",
+      "x": 70,
+      "y": 114,
+      "w": 180,
+      "h": 90,
+      "c": 65535,
+      "v": "fffffffffffffffffffffffffffffffffffffffffffff0fffffffffffffffffffffffffffffffffffffffffffff0fffffffffffffffffffffffffffffffffffffffffffff0fffffffffffffffffffffffffffffffffffffffffffff0fffffffffffffffffffffffffffffffffffffffffffff0fffffffffffffffffffffffffffffffffffffffffffff0fffffffffffffffffffffffffffffffffffffffffffff0fffffffffffffffffffffffffffffffffffffffffffff0fffffffffffffffffffffffffffffffffffffffffffff07fffffffffffffffffffffffffffffffffffffffffffe07fffffffffffffffffffffffffffffffffffffffffffe07fffffffffffffffffffffffffffffffffffffffffffe07fffffffffffffffffffffffffffffffffffffffffffe07fffffffffffffffffffffffffffffffffffffffffffe07fffffffffffffffffffffffffffffffffffffffffffe07fffffffffffffffffffffffffffffffffffffffffffe03fffffffffffffffffffffffffffffffffffffffffffc03fffffffffffffffffffffffffffffffffffffffffffc03fffffffffffffffffffffffffffffffffffffffffffc03fffffffffffffffffffffffffffffffffffffffffffc03fffffffffffffffffffffffffffffffffffffffffffc01fffffffffffffffffffffffffffffffffffffffffff801fffffffffffffffffffffffffffffffffffffffffff801fffffffffffffffffffffffffffffffffffffffffff801fffffffffffffffffffffffffffffffffffffffffff800fffffffffffffffffffffffffffffffffffffffffff000fffffffffffffffffffffffffffffffffffffffffff000fffffffffffffffffffffffffffffffffffffffffff0007fffffffffffffffffffffffffffffffffffffffffe0007fffffffffffffffffffffffffffffffffffffffffe0007fffffffffffffffffffffffffffffffffffffffffe0003fffffffffffffffffffffffffffffffffffffffffc0003fffffffffffffffffffffffffffffffffffffffffc0003fffffffffffffffffffffffffffffffffffffffffc0001fffffffffffffffffffffffffffffffffffffffff80001fffffffffffffffffffffffffffffffffffffffff80000fffffffffffffffffffffffffffffffffffffffff00000fffffffffffffffffffffffffffffffffffffffff000007fffffffffffffffffffffffffffffffffffffffe000007fffffffffffffffffffffffffffffffffffffffe000003fffffffffffffffffffffffffffffffffffffffc000003fffffffffffffffffffffffffffffffffffffffc000001fffffffffffffffffffffffffffffffffffffff8000001fffffffffffffffffffffffffffffffffffffff8000000fffffffffffffffffffffffffffffffffffffff0000000fffffffffffffffffffffffffffffffffffffff00000007fffffffffffffffffffffffffffffffffffffe00000003fffffffffffffffffffffffffffffffffffffc00000003fffffffffffffffffffffffffffffffffffffc00000001fffffffffffffffffffffffffffffffffffff800000000fffffffffffffffffffffffffffffffffffff000000000fffffffffffffffffffffffffffffffffffff0000000007fffffffffffffffffffffffffffffffffffe0000000003fffffffffffffffffffffffffffffffffffc0000000003fffffffffffffffffffffffffffffffffffc0000000001fffffffffffffffffffffffffffffffffff80000000000fffffffffffffffffffffffffffffffffff000000000007fffffffffffffffffffffffffffffffffe000000000003fffffffffffffffffffffffffffffffffc000000000003fffffffffffffffffffffffffffffffffc000000000001fffffffffffffffffffffffffffffffff8000000000000fffffffffffffffffffffffffffffffff00000000000007fffffffffffffffffffffffffffffffe00000000000003fffffffffffffffffffffffffffffffc00000000000001fffffffffffffffffffffffffffffff800000000000000fffffffffffffffffffffffffffffff0000000000000007fffffffffffffffffffffffffffffe0000000000000003fffffffffffffffffffffffffffffc0000000000000000fffffffffffffffffffffffffffff000000000000000007fffffffffffffffffffffffffffe000000000000000003fffffffffffffffffffffffffffc000000000000000001fffffffffffffffffffffffffff80000000000000000007fffffffffffffffffffffffffe00000000000000000003fffffffffffffffffffffffffc00000000000000000000fffffffffffffffffffffffff0000000000000000000007fffffffffffffffffffffffe0000000000000000000001fffffffffffffffffffffff80000000000000000000000fffffffffffffffffffffff000000000000000000000003fffffffffffffffffffffc000000000000000000000000fffffffffffffffffffff00000000000000000000000003fffffffffffffffffffc00000000000000000000000000fffffffffffffffffff0000000000000000000000000003fffffffffffffffffc0000000000000000000000000000fffffffffffffffff000000000000000000000000000001fffffffffffffff80000000000000000000000000000003fffffffffffffc000000000000000000000000000000007fffffffffffe00000000000000000000000000000000007fffffffffe0000000000000000000000000000000000003fffffffc0000000000000000000000000000000000000007fffe000000000000000000000"
+    },
+    {
+      "t": "geometry",
+      "x": 63,
+      "y": 105,
+      "w": 194,
+      "h": 14,
+      "c": 0,
+      "g": "rect",
+      "f": true
+    },
+    {
+      "t": "geometry",
+      "x": 136,
+      "y": 91,
+      "w": 48,
+      "h": 48,
+      "c": 0,
+      "g": "circle",
+      "f": true
+    },
+    {
+      "t": "geometry",
+      "x": 143,
+      "y": 98,
+      "w": 34,
+      "h": 34,
+      "c": 65535,
+      "g": "circle",
+      "f": true
+    },
+    {
+      "t": "geometry",
+      "x": 151,
+      "y": 106,
+      "w": 18,
+      "h": 18,
+      "c": 0,
+      "g": "circle",
+      "f": false
+    },
+    {
+      "t": "clock",
+      "x": 125,
+      "y": 216,
+      "w": 70,
+      "h": 12,
+      "c": 65535,
+      "v": "@T",
+      "s": 1
+    }
+  ]
+}

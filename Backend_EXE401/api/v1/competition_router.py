@@ -10,11 +10,12 @@
 # - GET /api/v1/competition/leaderboard/{room_code}?period=today|week|month|all : Lấy bảng xếp hạng
 # ==========================================
 
-from fastapi import APIRouter, Request, HTTPException, Query
+from fastapi import APIRouter, Request, HTTPException, Query, Depends
 from pydantic import BaseModel
 from typing import List, Optional
 import datetime
 import uuid
+from core.security import get_current_user_id
 
 router = APIRouter()
 
@@ -25,10 +26,10 @@ class GroupCreate(BaseModel):
 
 class GroupJoin(BaseModel):
     room_code: str
-    user_id: str
+    user_id: Optional[str] = None
 
 class PomodoroSubmission(BaseModel):
-    user_id: str
+    user_id: Optional[str] = None
     work_min: int
     completed: bool
     pauses: int
@@ -75,7 +76,11 @@ def _get_date_filter(period: str) -> Optional[str]:
 
 # --- Endpoints ---
 @router.post("/groups")
-async def create_group(request: Request, payload: GroupCreate):
+async def create_group(
+    request: Request,
+    payload: GroupCreate,
+    current_user_id: str = Depends(get_current_user_id),
+):
     db = request.app.database
     if db is None:
         raise HTTPException(status_code=500, detail="Database not connected")
@@ -85,7 +90,8 @@ async def create_group(request: Request, payload: GroupCreate):
         "room_code": room_code,
         "name": payload.name,
         "duration_days": payload.duration_days,
-        "members": [],
+        "members": [current_user_id],
+        "created_by": current_user_id,
         "created_at": datetime.datetime.utcnow()
     }
     
@@ -97,7 +103,11 @@ async def create_group(request: Request, payload: GroupCreate):
     }
 
 @router.post("/groups/join")
-async def join_group(request: Request, payload: GroupJoin):
+async def join_group(
+    request: Request,
+    payload: GroupJoin,
+    current_user_id: str = Depends(get_current_user_id),
+):
     db = request.app.database
     if db is None:
         raise HTTPException(status_code=500, detail="Database not connected")
@@ -111,19 +121,24 @@ async def join_group(request: Request, payload: GroupJoin):
         raise HTTPException(status_code=400, detail="Phong da het han thi dua")
     
     # Kiểm tra giới hạn thành viên (tối đa 5 người để cạnh tranh tốt)
-    if payload.user_id not in group["members"]:
-        if len(group["members"]) >= 5:
+    members = group.get("members", [])
+    if current_user_id not in members:
+        if len(members) >= 5:
             raise HTTPException(status_code=400, detail="Phong da day (Toi da 5 nguoi)")
             
         await db["Groups"].update_one(
             {"room_code": payload.room_code},
-            {"$push": {"members": payload.user_id}}
+            {"$push": {"members": current_user_id}}
         )
         
     return {"status": "success", "message": "Da tham gia phong thi dua thanh cong!"}
 
 @router.post("/submit")
-async def submit_session(request: Request, payload: PomodoroSubmission):
+async def submit_session(
+    request: Request,
+    payload: PomodoroSubmission,
+    current_user_id: str = Depends(get_current_user_id),
+):
     db = request.app.database
     if db is None:
         raise HTTPException(status_code=500, detail="Database not connected")
@@ -131,11 +146,11 @@ async def submit_session(request: Request, payload: PomodoroSubmission):
     # 1. Tính toán điểm PRS theo logic cứng (không dùng AI)
     prs = calculate_prs(payload.work_min, payload.completed, payload.pauses)
     
-    # 2. Lưu vào CSDL tổng hợp theo ngày
+    # 2. Lưu vào CSDL tổng hợp theo ngày với authenticated user_id
     today = datetime.datetime.utcnow().strftime("%Y-%m-%d")
     
     await db["DailyStats"].update_one(
-        {"user_id": payload.user_id, "date": today},
+        {"user_id": current_user_id, "date": today},
         {
             "$inc": {
                 "total_score": prs, 
@@ -156,11 +171,13 @@ async def submit_session(request: Request, payload: PomodoroSubmission):
 async def get_leaderboard(
     request: Request, 
     room_code: str,
-    period: str = Query(default="all", regex="^(today|week|month|all)$")
+    period: str = Query(default="all", pattern="^(today|week|month|all)$"),
+    current_user_id: str = Depends(get_current_user_id),
 ):
     """
     Lấy bảng xếp hạng tổng điểm của phòng thi đua.
     Query param `period`: today | week | month | all
+    Yêu cầu JWT token và kiểm tra thành viên: current_user_id phải nằm trong group["members"].
     """
     db = request.app.database
     if db is None:
@@ -170,10 +187,16 @@ async def get_leaderboard(
     if not group:
         raise HTTPException(status_code=404, detail="Khong tim thay ma phong")
     
+    members = group.get("members", [])
+    if current_user_id not in members:
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: Ban khong phai la thanh vien cua phong thi dua nay",
+        )
+    
     # Kiểm tra hết hạn
     expired = _check_expired(group)
     
-    members = group["members"]
     if not members:
         return {
             "room_code": room_code, 

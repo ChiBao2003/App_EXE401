@@ -2,7 +2,7 @@
 api/v1/pomodoro_router.py - Tang API Controller cho luong Pomodoro Sync
 Nhan du lieu tu App Flutter -> Phan tich AI -> Tra ve feedback
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pydantic import BaseModel
 from datetime import datetime
@@ -37,6 +37,7 @@ class PhoneData(BaseModel):
 
 class PomodoroSyncPayload(BaseModel):
     user_id: str
+    session_id: Optional[str] = None     # Dinh danh phien tu ESP32/Flutter (Idempotency Key)
     hardware_data: HardwareData
     phone_data: PhoneData
 
@@ -124,6 +125,26 @@ def generate_ai_feedback(
 
 
 # ============================================================
+# Helpers: Multi-Tenant Scoped Session ID
+# ============================================================
+def generate_scoped_session_id(user_id: str, raw_session_id: str) -> str:
+    """
+    Sinh session_id co pham vi theo user (multi-tenant scoped key).
+    Dam bao tinh duy nhat giua cac user ngay ca khi 2 thiet bi ESP32 sinh cung session_id,
+    dong thoi tuong thich 100% voi unique index toan cuc 'uniq_pomodoro_session_id' tren MongoDB.
+    """
+    raw = str(raw_session_id).strip()
+    user_prefix = f"pomo_{user_id}_"
+    if raw.startswith(user_prefix):
+        return raw
+    if raw.startswith(f"{user_id}_"):
+        return f"pomo_{raw}"
+    if raw.startswith("pomo_"):
+        return f"pomo_{user_id}_{raw[5:]}"
+    return f"pomo_{user_id}_{raw}"
+
+
+# ============================================================
 # Endpoints
 # ============================================================
 @router.post("/sync", summary="Dong bo du lieu Pomodoro tu ESP32 qua App")
@@ -135,8 +156,11 @@ async def sync_pomodoro_session(
     """
     Nhan du lieu phien Pomodoro tu App Flutter, luu MongoDB, tra ve AI feedback.
     Bao gom: hardware_data (tu ESP32) + phone_data (tu App) + computed (Backend tinh).
+    Multi-tenant isolated: user_id duoc trich xuat tu token xac thuc backend,
+    khong tin tuong user_id tu client.
     """
     payload.user_id = user_id
+    auth_user_id = user_id
     hw = payload.hardware_data
     ph = payload.phone_data
 
@@ -194,64 +218,154 @@ async def sync_pomodoro_session(
         "is_afternoon": is_afternoon,
     }
 
-    # === Luu vao MongoDB ===
+    # === Xac dinh khoa dinh danh phien (Multi-Tenant Idempotency Key) ===
+    # Uu tien session_id on dinh tu ESP32 / Flutter, hoac fallback ve khoa tu nhien hop le
+    raw_session_id = payload.session_id or f"pomo_{hw.start_time or now_utc.isoformat()}_{hw.session_count}"
+    scoped_session_id = generate_scoped_session_id(auth_user_id, raw_session_id)
+
+    # === Luu vao MongoDB (Atomic Upsert theo cap user_id va session_id) ===
     document = {
-        "user_id": payload.user_id,
+        "user_id": auth_user_id,
+        "session_id": scoped_session_id,
+        "hardware_session_id": raw_session_id,
         "hardware_data": hw.model_dump(),
         "phone_data": ph.model_dump(),
         "computed": computed,
         "ai_feedback": feedback,
         "synced_at": now_utc.isoformat(),
     }
-    result = await db["pomodoro_sessions"].insert_one(document)
 
-    # === Tu dong ghi productivity_log cho AI Q-Learning ===
-    prod_log = {
-        "user_id": payload.user_id,
-        "session_id": str(result.inserted_id),
-        "recommendation_id": ph.recommendation_id,
-        "work_min": hw.work_min,
-        "break_min": hw.break_min,
-        "concentration_score": conc_score,
-        "completion_rate": comp_rate,
-        "interruptions": hw.pauses,
-        "break_skipped": False,
-        "task_type": ph.task_type,
-        "completed": hw.completed,
-        "timestamp": now_utc.isoformat(),
-        "hour_of_day": hour_of_day,
-        "day_of_week": day_of_week,
-    }
-    await db["productivity_logs"].insert_one(prod_log)
+    # Thao tac nguyen tu voi update_one(..., upsert=True) de chong ghi trung va va cham multi-tenant
+    is_new = False
+    session_doc_id = None
+    upsert_error: Optional[Exception] = None
+    try:
+        upsert_res = await db["pomodoro_sessions"].update_one(
+            {"user_id": auth_user_id, "session_id": scoped_session_id},
+            {"$setOnInsert": document},
+            upsert=True
+        )
+        if upsert_res.upserted_id is not None:
+            is_new = True
+            session_doc_id = str(upsert_res.upserted_id)
+        else:
+            is_new = False
+    except Exception as e:
+        # Co the do race condition, xung dot duplicate key, hoac loi ket noi/ghi DB
+        is_new = False
+        upsert_error = e
 
-    # === Cap nhat AI Recommendation Log (feedback loop) ===
-    if ph.recommendation_id:
+    if not is_new:
+        # Xac minh xem phien da thuc su ton tai truoc do cua DUNG user nay (Retry / Idempotency)
         try:
-            from application.ai.adaptive_pomodoro_agent import AdaptivePomodoroAgent
-            from domain.entities.productivity_entity import SessionFeedback
-
-            sf = SessionFeedback(
-                user_id=payload.user_id,
-                session_id=str(result.inserted_id),
-                recommendation_id=ph.recommendation_id,
-                work_min=hw.work_min,
-                break_min=hw.break_min,
-                concentration_score=conc_score,
-                completion_rate=comp_rate,
-                interruptions=hw.pauses,
-                break_skipped=False,
-                task_type=ph.task_type,
-                hour_of_day=hour_of_day,
-                day_of_week=day_of_week,
+            existing_doc = await db["pomodoro_sessions"].find_one({
+                "user_id": auth_user_id,
+                "$or": [
+                    {"session_id": scoped_session_id},
+                    {"session_id": raw_session_id},
+                    {"hardware_session_id": raw_session_id},
+                ]
+            })
+        except Exception as find_err:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Loi ket noi co so du lieu khi xac minh phien: {find_err}"
             )
-            agent = AdaptivePomodoroAgent(user_id=payload.user_id, db=db)
-            await agent.update(sf)
-        except Exception as e:
-            print(f"[WARN] AI feedback loop error: {e}")
+
+        if existing_doc:
+            # Multi-tenant safety check: tuyet doi khong tra ve du lieu neu khong thuoc user nay
+            if existing_doc.get("user_id") != auth_user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Khong co quyen truy cap phien Pomodoro cua nguoi dung khac"
+                )
+            session_doc_id = str(existing_doc.get("_id"))
+            feedback = existing_doc.get("ai_feedback", feedback)
+            computed = existing_doc.get("computed", computed)
+        else:
+            # Kiem tra xem co phai bi va cham duplicate key voi user khac tren index toan cuc khong
+            other_user_doc = None
+            try:
+                other_user_doc = await db["pomodoro_sessions"].find_one({
+                    "$or": [
+                        {"session_id": raw_session_id},
+                        {"session_id": scoped_session_id},
+                    ]
+                })
+            except Exception:
+                pass
+
+            if other_user_doc and other_user_doc.get("user_id") != auth_user_id:
+                # Tuyet doi khong tra du lieu nguoi khac hoac coi day la retry hop le!
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Xung dot session_id voi nguoi dung khac ({raw_session_id}). Khong the su dung session_id nay."
+                )
+
+            # Document khong he ton tai trong DB: thao tac ghi that bai va khong tim thay ban ghi hop le
+            # Nhat quyet KHONG tra HTTP 200 gia mao vi se khien Flutter ACK va ESP32 xoa mat phien!
+            err_msg = str(upsert_error) if upsert_error else "Khong the luu va khong tim thay ban ghi tuong ung"
+            status_code = status.HTTP_503_SERVICE_UNAVAILABLE if (upsert_error and "timeout" in err_msg.lower()) else status.HTTP_500_INTERNAL_SERVER_ERROR
+            raise HTTPException(
+                status_code=status_code,
+                detail=f"Loi ghi du lieu MongoDB cho phien Pomodoro ({raw_session_id}): {err_msg}"
+            )
+
+    # === Chi ghi log va huan luyen AI khi phien la MOI (tranh huan luyen duplicate) ===
+    if is_new and session_doc_id:
+        prod_log = {
+            "user_id": auth_user_id,
+            "session_id": session_doc_id,
+            "recommendation_id": ph.recommendation_id,
+            "work_min": hw.work_min,
+            "break_min": hw.break_min,
+            "concentration_score": conc_score,
+            "completion_rate": comp_rate,
+            "interruptions": hw.pauses,
+            "break_skipped": False,
+            "task_type": ph.task_type,
+            "completed": hw.completed,
+            "timestamp": now_utc.isoformat(),
+            "hour_of_day": hour_of_day,
+            "day_of_week": day_of_week,
+        }
+        try:
+            await db["productivity_logs"].update_one(
+                {"user_id": auth_user_id, "session_id": session_doc_id},
+                {"$setOnInsert": prod_log},
+                upsert=True
+            )
+        except Exception:
+            pass
+
+        # === Cap nhat AI Recommendation Log (feedback loop) ===
+        if ph.recommendation_id:
+            try:
+                from application.ai.adaptive_pomodoro_agent import AdaptivePomodoroAgent
+                from domain.entities.productivity_entity import SessionFeedback
+
+                sf = SessionFeedback(
+                    user_id=auth_user_id,
+                    session_id=session_doc_id,
+                    recommendation_id=ph.recommendation_id,
+                    work_min=hw.work_min,
+                    break_min=hw.break_min,
+                    concentration_score=conc_score,
+                    completion_rate=comp_rate,
+                    interruptions=hw.pauses,
+                    break_skipped=False,
+                    task_type=ph.task_type,
+                    hour_of_day=hour_of_day,
+                    day_of_week=day_of_week,
+                )
+                agent = AdaptivePomodoroAgent(user_id=auth_user_id, db=db)
+                await agent.update(sf)
+            except Exception as e:
+                print(f"[WARN] AI feedback loop error: {e}")
 
     return {
         "status": "ok",
-        "session_id": str(result.inserted_id),
+        "session_id": session_doc_id,
         "feedback": feedback,
         "computed": computed,
         "summary": {
@@ -269,9 +383,15 @@ async def sync_pomodoro_session(
 async def get_pomodoro_history(
     user_id: str,
     limit: int = 10,
+    current_user_id: str = Depends(get_current_user_id),
     db: AsyncIOMotorDatabase = Depends(get_database),
 ):
-    """Lay {limit} phien gan nhat cua user."""
+    """Lay {limit} phien gan nhat cua user. Chi chinh chu moi co quyen xem."""
+    if user_id != current_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Khong co quyen xem lich su cua nguoi dung khac"
+        )
     cursor = (
         db["pomodoro_sessions"]
         .find({"user_id": user_id}, {"_id": 0})

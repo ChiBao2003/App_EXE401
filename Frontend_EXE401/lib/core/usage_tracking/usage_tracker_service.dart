@@ -276,6 +276,30 @@ class UsageTrackerService {
     }
   }
 
+  /// Gửi danh sách distraction events phát hiện được trong phiên Pomodoro lên backend
+  Future<bool> syncDistractionEvents(List<DistractionEvent> distractions) async {
+    if (distractions.isEmpty) return true;
+    try {
+      final body = {
+        'events': distractions.map((d) => {
+          'event_type': 'distraction',
+          'package_name': d.packageName,
+          'app_name': d.appName,
+          'category': d.category.name,
+          'duration_ms': d.durationMs,
+          'timestamp': d.timestamp.toIso8601String(),
+          'pomodoro_session_id': d.pomodoroSessionId,
+        }).toList(),
+      };
+      await ApiClient.post('/api/v1/usage/events', body);
+      print('[UsageTracker] Synced ${distractions.length} distraction events to backend OK');
+      return true;
+    } catch (e) {
+      print('[UsageTracker] Sync distraction events error: $e');
+      return false;
+    }
+  }
+
   /// Giải phóng resources
   void dispose() {
     stopScreenEventTracking();

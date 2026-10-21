@@ -1,182 +1,125 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
-import '../../core/theme/app_colors.dart';
-import '../../core/widgets/common_widgets.dart';
-
-class InterfaceItem {
-  final String name;
-  final bool isDefault;
-  bool isEnabled;
-  double displayMinutes;
-
-  InterfaceItem({
-    required this.name,
-    required this.isDefault,
-    this.isEnabled = true,
-    this.displayMinutes = 5,
-  });
-}
+import 'package:provider/provider.dart';
+import '../../core/bluetooth/spp_service.dart';
+import '../../core/display/tft_layout.dart';
 
 class InterfacesScreen extends StatefulWidget {
   const InterfacesScreen({super.key});
-
   @override
   State<InterfacesScreen> createState() => _InterfacesScreenState();
 }
 
 class _InterfacesScreenState extends State<InterfacesScreen> {
-  final List<InterfaceItem> _interfaces = [
-    InterfaceItem(name: 'Giao diện mặc định 1', isDefault: true, isEnabled: true, displayMinutes: 5),
-    InterfaceItem(name: 'Giao diện mặc định 2', isDefault: true, isEnabled: true, displayMinutes: 5),
-    InterfaceItem(name: 'Giao diện mặc định 3', isDefault: true, isEnabled: true, displayMinutes: 5),
-    InterfaceItem(name: 'Giao diện mặc định 4', isDefault: true, isEnabled: true, displayMinutes: 5),
-    InterfaceItem(name: 'Giao diện mặc định 5', isDefault: true, isEnabled: true, displayMinutes: 5),
-    InterfaceItem(name: 'Màn hình tự thiết kế\nSlot2', isDefault: false, isEnabled: false, displayMinutes: 0),
-    InterfaceItem(name: 'Màn hình tự thiết kế\nSlot3', isDefault: false, isEnabled: false, displayMinutes: 0),
-    InterfaceItem(name: 'Màn hình tự thiết kế\nSlot4', isDefault: false, isEnabled: false, displayMinutes: 0),
-    InterfaceItem(name: 'Màn hình tự thiết kế\nSlot5', isDefault: false, isEnabled: false, displayMinutes: 0),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: AppColors.background,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_rounded),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text('Các giao diện', style: GoogleFonts.nunito(fontWeight: FontWeight.w800)),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.download_rounded),
-            onPressed: () => showSuccessSnackbar(context, 'Đang tải giao diện mẫu...'),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Text(
-              'Đồng hồ sẽ tự động chuyển đổi qua lại giữa các giao diện, có 5 giao diện mặc định và 5 giao diện do bạn nạp vào',
-              style: GoogleFonts.nunito(fontSize: 13, color: AppColors.textSecondary),
-            ),
-          ),
-          Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
-              itemCount: _interfaces.length,
-              itemBuilder: (context, index) {
-                final item = _interfaces[index];
-                return _InterfaceCard(
-                  item: item,
-                  onEnabledChanged: (v) => setState(() => item.isEnabled = v),
-                  onMinutesChanged: (v) => setState(() => item.displayMinutes = v),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-      bottomNavigationBar: Container(
-        color: AppColors.background,
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 30),
-        child: EinkButton(
-          label: 'Lưu cài đặt',
-          icon: Icons.save_rounded,
-          backgroundColor: AppColors.btnOrange,
-          onPressed: () => showSuccessSnackbar(context, 'Đã lưu cài đặt giao diện!'),
-        ),
-      ),
-    );
+  bool _busy = false;
+  int _color = 0x07ff;
+  Future<void> _apply(Future<void> Function(SppService) action) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await action(context.read<SppService>());
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
-}
 
-class _InterfaceCard extends StatelessWidget {
-  final InterfaceItem item;
-  final ValueChanged<bool> onEnabledChanged;
-  final ValueChanged<double> onMinutesChanged;
-
-  const _InterfaceCard({
-    required this.item,
-    required this.onEnabledChanged,
-    required this.onMinutesChanged,
-  });
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && context.read<SppService>().isConnected) {
+        _apply((s) => s.refreshDisplayState());
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    final isDefault = item.isDefault;
-    final bgColor = isDefault ? AppColors.cardBlue : AppColors.cardGrayLight;
-    final iconBg = isDefault ? AppColors.iconBgBlue : AppColors.iconBgGray;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    final spp = context.watch<SppService>();
+    final state = spp.displayState;
+    const modes = [
+      'Đồng hồ chính',
+      'Pomodoro',
+      'Đếm ngược',
+      'Loa Bluetooth A2DP',
+    ];
+    const themes = ['Flip Clock', 'Analog Dial', 'Sunset Digital'];
+    return Scaffold(
+      appBar: AppBar(title: const Text('Điều khiển ESP32 TFT')),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
         children: [
-          Row(
+          const Text('ILI9341 · 320×240 · RGB565 · RTC DS3231'),
+          Text(spp.isConnected ? 'Đã kết nối BLE' : 'Chưa kết nối ESP32'),
+          if (_busy) const LinearProgressIndicator(),
+          const SizedBox(height: 24),
+          const Text('Chế độ hoạt động'),
+          for (var i = 0; i < modes.length; i++)
+            ListTile(
+              title: Text(modes[i]),
+              selected: state?['mode'] == i,
+              trailing: state?['mode'] == i ? const Icon(Icons.check) : null,
+              onTap: !spp.isConnected || _busy
+                  ? null
+                  : () => _apply((s) => s.setMode(i)),
+            ),
+          const Divider(),
+          const Text('Theme đồng hồ'),
+          for (var i = 0; i < themes.length; i++)
+            ListTile(
+              title: Text(themes[i]),
+              selected: state?['theme_id'] == i && state?['custom'] != true,
+              onTap: !spp.isConnected || _busy
+                  ? null
+                  : () => _apply((s) async {
+                      await s.setTheme(i, hexColor: rgb565Hex(_color));
+                      await s.setMode(0);
+                    }),
+            ),
+          const SizedBox(height: 16),
+          const Text('Màu chủ đạo RGB565 (áp dụng khi chọn theme)'),
+          Wrap(
+            spacing: 8,
             children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: iconBg,
-                  borderRadius: BorderRadius.circular(14),
+              for (final color in tftPalette.entries)
+                ChoiceChip(
+                  label: Text(
+                    '${color.key} 0x${color.value.toRadixString(16).padLeft(4, '0').toUpperCase()}',
+                  ),
+                  avatar: CircleAvatar(
+                    backgroundColor: rgb565Color(color.value),
+                  ),
+                  selected: _color == color.value,
+                  onSelected: _busy
+                      ? null
+                      : (_) => setState(() => _color = color.value),
                 ),
-                child: const Icon(Icons.remove_red_eye_rounded, color: Colors.white, size: 24),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  item.name,
-                  style: GoogleFonts.nunito(fontSize: 16, fontWeight: FontWeight.w800),
-                ),
-              ),
-              Checkbox(
-                value: item.isEnabled,
-                onChanged: (v) => onEnabledChanged(v ?? false),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
-                side: BorderSide(
-                  color: isDefault ? AppColors.sliderActive : AppColors.iconBgGray,
-                  width: 2,
-                ),
-                fillColor: WidgetStateProperty.resolveWith((states) {
-                  if (states.contains(WidgetState.selected)) {
-                    return isDefault ? AppColors.sliderActive : AppColors.iconBgGray;
-                  }
-                  return Colors.transparent;
-                }),
-              ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 20),
           Text(
-            'Thời gian hiển thị: ${item.displayMinutes.toInt()} phút',
-            style: GoogleFonts.nunito(fontSize: 12, color: AppColors.textSecondary),
+            state == null
+                ? 'Chưa đọc trạng thái NVS'
+                : 'Custom Layout: ${state['custom'] == true ? 'đang dùng' : 'không hoạt động'} · ${state['layout_count'] ?? 0} phần tử trong NVS',
           ),
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              activeTrackColor: isDefault ? AppColors.sliderActive : AppColors.iconBgGray,
-              thumbColor: isDefault ? AppColors.sliderActive : AppColors.iconBgGray,
-              inactiveTrackColor: Colors.white,
-              trackHeight: 3,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
-            ),
-            child: Slider(
-              value: item.displayMinutes,
-              min: 0,
-              max: 30,
-              divisions: 30,
-              onChanged: onMinutesChanged,
-            ),
+          TextButton(
+            onPressed: _busy || !spp.isConnected
+                ? null
+                : () => _apply((s) => s.refreshDisplayState()),
+            child: const Text('Đọc trạng thái từ đồng hồ'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pushNamed(context, '/design'),
+            child: const Text('Mở Canvas Studio'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pushNamed(context, '/market'),
+            child: const Text('Chợ giao diện'),
           ),
         ],
       ),

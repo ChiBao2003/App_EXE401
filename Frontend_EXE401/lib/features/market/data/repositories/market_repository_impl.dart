@@ -1,9 +1,8 @@
 /// features/market/data/repositories/market_repository_impl.dart
 /// Tầng Data - Implement MarketRepository thật bằng cách gọi API.
 /// Đây là nơi DUY NHẤT chứa code HTTP gọi API Market.
-library market_repository_impl;
+library;
 
-import 'package:flutter/foundation.dart';
 import '../../domain/entities/market_item.dart';
 import '../../domain/repositories/market_repository.dart';
 import '../models/market_model.dart';
@@ -14,7 +13,7 @@ class MarketRepositoryImpl implements MarketRepository {
   final ApiClient _api;
 
   MarketRepositoryImpl({ApiClient? apiClient})
-      : _api = apiClient ?? ApiClient.instance;
+    : _api = apiClient ?? ApiClient.instance;
 
   @override
   Future<List<MarketItem>> getAllTemplates() async {

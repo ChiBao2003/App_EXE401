@@ -10,8 +10,8 @@ from domain.entities.schedule_entity import ScheduleEntity
 class AbstractScheduleRepository(ABC):
 
     @abstractmethod
-    async def get_all(self) -> List[ScheduleEntity]:
-        """Lấy toàn bộ lịch nhắc nhở."""
+    async def get_all(self, user_id: str) -> List[ScheduleEntity]:
+        """Lấy toàn bộ lịch nhắc nhở của user."""
         ...
 
     @abstractmethod
@@ -20,6 +20,6 @@ class AbstractScheduleRepository(ABC):
         ...
 
     @abstractmethod
-    async def delete(self, item_id: str) -> bool:
-        """Xóa lịch nhắc nhở theo ID."""
+    async def delete(self, item_id: str, user_id: str) -> bool:
+        """Xóa lịch nhắc nhở theo ID của đúng user."""
         ...

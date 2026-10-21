@@ -1,0 +1,115 @@
+{
+  "title": "Phàm Nhân Tu Tiên - Hàn Lập",
+  "style": "color_rgb565",
+  "background": 2693,
+  "elements": [
+    {
+      "t": "geometry",
+      "x": 5,
+      "y": 5,
+      "w": 310,
+      "h": 230,
+      "c": 65535,
+      "v": "",
+      "s": 1,
+      "g": "roundrect",
+      "f": false
+    },
+    {
+      "t": "geometry",
+      "x": 9,
+      "y": 9,
+      "w": 302,
+      "h": 222,
+      "c": 65535,
+      "v": "",
+      "s": 1,
+      "g": "roundrect",
+      "f": false
+    },
+    {
+      "t": "text",
+      "x": 18,
+      "y": 18,
+      "w": 270,
+      "h": 12,
+      "c": 65535,
+      "v": "HAN LI #001",
+      "s": 1
+    },
+    {
+      "t": "geometry",
+      "x": 14,
+      "y": 38,
+      "w": 205,
+      "h": 86,
+      "c": 65535,
+      "v": "",
+      "s": 1,
+      "g": "roundrect",
+      "f": false
+    },
+    {
+      "t": "clock",
+      "x": 20,
+      "y": 56,
+      "w": 185,
+      "h": 45,
+      "c": 65535,
+      "v": "@T",
+      "s": 5
+    },
+    {
+      "t": "calendar",
+      "x": 20,
+      "y": 111,
+      "w": 180,
+      "h": 16,
+      "c": 65535,
+      "v": "@d/@M/@y",
+      "s": 2
+    },
+    {
+      "t": "geometry",
+      "x": 14,
+      "y": 143,
+      "w": 205,
+      "h": 1,
+      "c": 65535,
+      "v": "",
+      "s": 1,
+      "g": "rect",
+      "f": true
+    },
+    {
+      "t": "text",
+      "x": 18,
+      "y": 155,
+      "w": 204,
+      "h": 20,
+      "c": 65535,
+      "v": "LEVEL: DEITY TRANS (Hóa Thần Kỳ)",
+      "s": 1
+    },
+    {
+      "t": "text",
+      "x": 18,
+      "y": 183,
+      "w": 190,
+      "h": 12,
+      "c": 65535,
+      "v": "BAT 98% 28C",
+      "s": 1
+    },
+    {
+      "t": "bitmap",
+      "x": 254,
+      "y": 82,
+      "w": 48,
+      "h": 64,
+      "c": 65535,
+      "v": "000000800000000003e00000000007f00000000007f0000000000ff8000000000ff8000000000ff8000000000ff8000000001ffc000000000ff8000000000ff8000000000ff8000000000ff8000000000ff800000007fffff80000007fff000000007fff00000000ffff80000001ffffc0000001ffffc0000003ffffe0000003ffffe0000003ffffe0000003ffffe0000003ffffe0000007fffff0000003ffffe0000003e7f3e0000003e7f3e0000003ffffe0000003ffffe0000001ffffc0000001ffffc0000000ffff800000007c1f000000007fff000000001ffc000000000ff8001000000080007c0000000000fe0000008000fe00001ffc00fe00007fff01ff0000ffff80fe0003ffffe0fe0003ffffe0fe0007fffff0fc000ffffff990000ffffff980000ffffffb00000ffffffe00001ffffffc00000ffffff800000ffffffc00000ffffffe00000ffffffe00000ffffffe00001fffffe700003bffffe3800038ffff83800038ffffc3800071dffce1c000e3808070e000e7000038e0",
+      "s": 1
+    }
+  ]
+}

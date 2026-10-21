@@ -1,0 +1,45 @@
+--- a/src/Esp32Pj.ino
++++ b/src/Esp32Pj.ino
+@@ -389,7 +389,7 @@
+ 
+ void setup() {
+   Serial.begin(115200);
+-  Serial.printf("[BUILD] NAV_MODE36_SELECT35_OK34 OK34_TRACE_V1 | %s %s\n",__DATE__,__TIME__);
++  Serial.printf("[BUILD] NAV_MODE36_SELECT35_OK34 OK34_TRACE_V2 | %s %s\n",__DATE__,__TIME__);
+   Serial.printf("[BUILD] Source: %s\n",__FILE__);
+   analogReadResolution(10);
+ 
+@@ -697,7 +697,7 @@
+ void processSerialCommand(String sCmd) {
+     sCmd.trim();
+     if (sCmd == "INPUTS") {
+-      Serial.printf("[BUILD] OK34_TRACE_V1 | %s %s | %s\n",__DATE__,__TIME__,__FILE__);
++      Serial.printf("[BUILD] OK34_TRACE_V2 | %s %s | %s\n",__DATE__,__TIME__,__FILE__);
+       Serial.printf("[INPUT] MODE36=%d OK34=%d SELECT35=%d touch=%d mode=%d\n",
+                     digitalRead(BTN_MODE), digitalRead(BTN_ACTION1), digitalRead(BTN_ACTION2),
+                     touchEnabled, (int)currentState);
+@@ -879,10 +879,11 @@
+     else if (screen==4) focus=timerControls[controlFocus];
+     else focus=btControls[controlFocus];
+   }
+-  Serial.printf("[NAV %s] at=%lu event=%s mode=%s screen=%s controlFocus=%d(%s) task=%s running=%d remaining=%d alarm=%d notif=%d\n",
++  Serial.printf("[NAV %s] at=%lu event=%s mode=%s screen=%s controlFocus=%d(%s) task=%s running=%d remaining=%d alarm=%d notif=%d work=%d timerRunning=%d timerRemaining=%d timerSelecting=%d\n",
+                 stage,(unsigned long)millis(),keyEventName(event),modes[int(currentState)],
+                 screens[screen],controlFocus,focus,current_pomo_task_type.c_str(),
+-                pomoRunning,pomoTime,isAlarmActive,notifActive);
++                pomoRunning,pomoTime,isAlarmActive,notifActive,pomoWorkDuration,
++                timerRunning,timerSeconds,timerSelecting);
+ }
+ 
+ void activateFocusedControl() {
+--- a/test/navigation_test.cpp
++++ b/test/navigation_test.cpp
+@@ -212,6 +212,8 @@
+   press(KeyEvent::Ok);render();
+   check(timerSeconds==30 && selectedTimerPreset==2 && timerRunning && controlFocus==0,
+         "OK starts the focused preset");
++  check(Serial.log.find("timerRunning=1 timerRemaining=30 timerSelecting=0")!=std::string::npos,
++        "Timer trace reports its own running/remaining/selection state");
+   press(KeyEvent::Ok);check(!timerRunning,"timer Pause pauses");
+   press(KeyEvent::Ok);check(timerRunning,"timer Resume resumes");
+   press(KeyEvent::Select);clockRoundTrip();

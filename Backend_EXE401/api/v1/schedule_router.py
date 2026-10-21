@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from core.database import get_database
+from core.security import get_current_user_id
 from infrastructure.repositories.mongo_schedule_repo import MongoScheduleRepository
 from application.schedule.queries import GetAllSchedulesQuery
 from application.schedule.commands import CreateScheduleCommand, DeleteScheduleCommand
@@ -17,23 +18,35 @@ def _get_repo(db: AsyncIOMotorDatabase = Depends(get_database)) -> MongoSchedule
 
 
 @router.get("/", summary="Lấy toàn bộ lịch nhắc nhở")
-async def get_schedules(repo: MongoScheduleRepository = Depends(_get_repo)):
+async def get_schedules(
+    user_id: str = Depends(get_current_user_id),
+    repo: MongoScheduleRepository = Depends(_get_repo),
+):
     query = GetAllSchedulesQuery(repository=repo)
-    return await query.execute()
+    return await query.execute(user_id=user_id)
 
 
 @router.post("/", summary="Tạo lịch nhắc nhở mới")
-async def create_schedule(schedule: dict, repo: MongoScheduleRepository = Depends(_get_repo)):
+async def create_schedule(
+    schedule: dict,
+    user_id: str = Depends(get_current_user_id),
+    repo: MongoScheduleRepository = Depends(_get_repo),
+):
     command = CreateScheduleCommand(repository=repo)
     return await command.execute(
         day_of_week=schedule.get("day_of_week", "Mon"),
         hour=schedule.get("hour", 8),
         minute=schedule.get("minute", 0),
         label=schedule.get("label", ""),
+        user_id=user_id,
     )
 
 
 @router.delete("/{item_id}", summary="Xóa lịch nhắc nhở theo ID")
-async def delete_schedule(item_id: str, repo: MongoScheduleRepository = Depends(_get_repo)):
+async def delete_schedule(
+    item_id: str,
+    user_id: str = Depends(get_current_user_id),
+    repo: MongoScheduleRepository = Depends(_get_repo),
+):
     command = DeleteScheduleCommand(repository=repo)
-    return await command.execute(item_id)
+    return await command.execute(item_id=item_id, user_id=user_id)

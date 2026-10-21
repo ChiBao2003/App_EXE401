@@ -1,0 +1,69 @@
+{
+  "source_root": "C:\\EXE401_WEDAPP_PROJECT_REPORT\\App_EXE401\\Firmware_ESP32",
+  "target_root": "C:\\EXE401_WEDAPP_PROJECT_REPORT\\260911-122138-esp32doit-devkit-v1",
+  "files": [
+    {
+      "path": "src/Esp32Pj.ino",
+      "before_sha256": "1233649fc21cd1bc33d937267a5553721ae36827025bbc09ae15900931c09ab4",
+      "after_sha256": "75e2ba0302cf70e5439f3918d7f7bebc1327502db019f0dbd67dc3ed4f56aefa",
+      "added": 367,
+      "removed": 274
+    },
+    {
+      "path": "src/io_service.h",
+      "before_sha256": "214449af77b772264e42736023d1a8badcd928ad240d05998a9b448eecc53c50",
+      "after_sha256": "ac024463edfaa3086e3cfb9aa6ba38d0924d2695c2824c9f329e87ea19dfe62f",
+      "added": 3,
+      "removed": 1
+    },
+    {
+      "path": "src/io_service.cpp",
+      "before_sha256": "7b64b931710f23fb7cfcb653c2c52ad6c634bfb1645eb146602ca8520a0d6cb3",
+      "after_sha256": "9ac10d0930525c29a8e44036edff170a17ac283b1603acf30d7654da0ad2db23",
+      "added": 19,
+      "removed": 16
+    },
+    {
+      "path": "src/io_logic.h",
+      "before_sha256": "4938c002a64465814431ea761e50937cb83aa62eae00e9ea7c49ca03b5d2b04c",
+      "after_sha256": "26c67b8804a82318066f3b01bc94778a2d0a7b759204c3c10eb097ac75a72095",
+      "added": 29,
+      "removed": 22
+    },
+    {
+      "path": "src/input_latch.h",
+      "before_sha256": "dc247eeee5abf9a168e6fc2a6c8953176427885e263b8c05e6383448524adef3",
+      "after_sha256": "e19f1f31bae3f9ef5e78cc9f75adc2003874646b45b099c18d8985c5402fa94d",
+      "added": 8,
+      "removed": 0
+    },
+    {
+      "path": "test/input_latch_test.cpp",
+      "before_sha256": null,
+      "after_sha256": "19b426d3bef94a92124e633bd9ae18b8f35c3cddab4d8fe9a5b1e06e927d5fc2",
+      "added": 108,
+      "removed": 0
+    },
+    {
+      "path": "test/navigation_test.cpp",
+      "before_sha256": null,
+      "after_sha256": "8287290ba806199cae300f21735ea831f70cc02f4b735a33a6bb376970c06b8b",
+      "added": 266,
+      "removed": 0
+    },
+    {
+      "path": "test/extract_navigation.ps1",
+      "before_sha256": null,
+      "after_sha256": "13aaaa54c042a507e78e8df3abb5de7d9bf9ace4cdd30d12b3792559da351ea7",
+      "added": 23,
+      "removed": 0
+    },
+    {
+      "path": "test/run_input_tests.cmd",
+      "before_sha256": null,
+      "after_sha256": "d8b55ced2567ecc81ce28859de5c404ac1d0fb3862abfdd55f0a4dd3d5a20cdd",
+      "added": 19,
+      "removed": 0
+    }
+  ]
+}

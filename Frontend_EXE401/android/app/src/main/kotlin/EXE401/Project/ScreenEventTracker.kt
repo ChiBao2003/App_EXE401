@@ -1,4 +1,4 @@
-package com.daonguyen.iot47.eink_clock
+package EXE401.Project
 
 import android.content.BroadcastReceiver
 import android.content.Context

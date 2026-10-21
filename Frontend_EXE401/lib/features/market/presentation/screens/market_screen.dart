@@ -213,7 +213,7 @@ class _MarketScreenContentState extends State<_MarketScreenContent> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Thiết kế độc quyền từ Synapse Labs:',
+              'Thiết kế độc quyền từ POMO SMART:',
               style: GoogleFonts.inter(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
@@ -344,7 +344,7 @@ class _MarketScreenContentState extends State<_MarketScreenContent> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // Left: Nút Back + Brand Synapse AI
+          // Left: Nút Back + Brand POMO SMART
           Row(
             children: [
               IconButton(
@@ -383,7 +383,7 @@ class _MarketScreenContentState extends State<_MarketScreenContent> {
                   Row(
                     children: [
                       Text(
-                        'Synapse',
+                        'POMO SMART',
                         style: GoogleFonts.outfit(
                           fontSize: 17,
                           fontWeight: FontWeight.bold,
@@ -706,7 +706,7 @@ class _MarketScreenContentState extends State<_MarketScreenContent> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Thiết kế bởi Synapse Labs. Bố cục màu RGB565 16-bit cho màn hình TFT LCD ILI9341 320×240.',
+            'Thiết kế bởi POMO SMART. Bố cục màu RGB565 16-bit cho màn hình TFT LCD ILI9341 320×240.',
             style: GoogleFonts.inter(
               fontSize: 12,
               color: const Color(0xFFCAC3D8),
@@ -998,7 +998,7 @@ class _MarketScreenContentState extends State<_MarketScreenContent> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Synapse Watch SDK v2.4',
+                  'POMO SMART SDK v2.4',
                   style: GoogleFonts.outfit(
                     fontSize: 15,
                     fontWeight: FontWeight.bold,
@@ -1026,7 +1026,7 @@ class _MarketScreenContentState extends State<_MarketScreenContent> {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(
-                    'Bộ SDK Synapse Watch v2.4 đang sẵn sàng trên GitHub repo.',
+                    'Bộ SDK POMO SMART v2.4 đang sẵn sàng trên GitHub repo.',
                     style: GoogleFonts.inter(fontSize: 12),
                   ),
                   duration: const Duration(seconds: 2),

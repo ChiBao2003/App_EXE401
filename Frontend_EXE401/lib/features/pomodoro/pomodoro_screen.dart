@@ -1172,7 +1172,7 @@ class _PomodoroScreenState extends State<PomodoroScreen>
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        "AI Synapse Coach",
+                        "POMO SMART Coach",
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.plusJakartaSans(

@@ -1,4 +1,4 @@
-package com.daonguyen.iot47.eink_clock
+package EXE401.Project
 
 import android.app.AppOpsManager
 import android.app.usage.UsageEvents

@@ -11,7 +11,7 @@ import '../../core/bluetooth/spp_service.dart';
 import '../../core/theme/app_colors.dart';
 import 'ai_assistant_screen.dart';
 
-/// Screen 4: AI Productivity Hub (Stitch ID: 750a06f0f1294031a05c7061df73c278)
+/// Screen 4: POMO SMART Hub (Stitch ID: 750a06f0f1294031a05c7061df73c278)
 /// Design System: Aether Synapse
 class AiHubScreen extends StatefulWidget {
   const AiHubScreen({super.key});
@@ -126,7 +126,7 @@ class _AiHubScreenState extends State<AiHubScreen>
     if (spp.isConnected) {
       await spp.sendPomodoroCycle(workMin, breakMin);
       await spp.sendNotification(
-        "AI Synapse",
+        "POMO SMART",
         "Đã áp dụng chu kỳ tập trung AI: ${workMin}m/${breakMin}m",
       );
     }
@@ -346,7 +346,7 @@ class _AiHubScreenState extends State<AiHubScreen>
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
-                    "SYNAPSE OS",
+                    "POMO SMART",
                     style: GoogleFonts.plusJakartaSans(
                       fontSize: 10,
                       fontWeight: FontWeight.w700,
@@ -463,7 +463,7 @@ class _AiHubScreenState extends State<AiHubScreen>
               ),
               const SizedBox(height: 2),
               Text(
-                "AI Productivity Hub",
+                "POMO SMART Hub",
                 style: GoogleFonts.outfit(
                   fontSize: 22,
                   fontWeight: FontWeight.w700,
@@ -1333,7 +1333,7 @@ class _AiHubScreenState extends State<AiHubScreen>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        "Lời khuyên từ Synapse Coach",
+                        "Lời khuyên từ POMO SMART Coach",
                         style: GoogleFonts.plusJakartaSans(
                           fontSize: 13,
                           fontWeight: FontWeight.w700,

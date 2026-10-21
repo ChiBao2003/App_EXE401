@@ -1,6 +1,7 @@
 // ==========================================
 // THI_DUA_FEATURE_START (Aether Synapse — Stitch Screen 7)
 // ==========================================
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,9 +11,12 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/api/auth_api.dart';
 import '../../core/bluetooth/ble_service.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_colors.dart';
+import 'competition_chat_screen.dart';
+import 'competition_direct_chat_screen.dart';
 
 String get competitionApiBase => '${AppConstants.baseUrl}/api/v1/competition';
 
@@ -58,22 +62,44 @@ class _CompetitionScreenState extends State<CompetitionScreen>
   // Controllers
   final TextEditingController _roomNameController = TextEditingController();
   final TextEditingController _joinCodeController = TextEditingController();
-  final TextEditingController _userIdController = TextEditingController(
-    text: 'user_bao',
-  );
+  final TextEditingController _userIdController = TextEditingController();
   int _durationDays = 7;
 
   // Animations & UI state
   bool _copiedRecently = false;
+  String _currentUserId = '';
   late http.Client _client;
+  Timer? _leaderboardTimer;
+  Timer? _socialTimer;
+  Map<String, dynamic> _social = {};
+  Map<String, dynamic> _unread = {};
+  Map<String, dynamic> _summary = {};
+  String _summaryPeriod = 'today';
+  bool _socialLoading = false;
+  int _roomUnreadCount = 0;
 
   @override
   void initState() {
     super.initState();
     _client = widget.httpClient ?? http.Client();
+    _leaderboardTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (!mounted || currentRoomCode == null || isLoading) return;
+      if (ModalRoute.of(context)?.isCurrent == true) {
+        _fetchLeaderboard(currentRoomCode!);
+      }
+    });
+    _socialTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (mounted &&
+          _currentUserId.isNotEmpty &&
+          ModalRoute.of(context)?.isCurrent == true) {
+        _loadSocial();
+        _loadRoomUnread();
+      }
+    });
 
     if (widget.initialUserId != null) {
       _userIdController.text = widget.initialUserId!;
+      _currentUserId = widget.initialUserId!;
     }
 
     if (widget.initialRoomCode != null) {
@@ -93,22 +119,26 @@ class _CompetitionScreenState extends State<CompetitionScreen>
   Future<void> _loadSavedState() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final savedUser =
-          prefs.getString('competition_user_id') ??
-          prefs.getString('user_id') ??
-          prefs.getString('user_name');
-      if (savedUser != null && savedUser.isNotEmpty) {
+      if (!mounted) return;
+      final userId = await AuthApi.getUserId();
+      final userName = await AuthApi.getUserName();
+      if (!mounted) return;
+      if (userId != null && userId.isNotEmpty) {
         setState(() {
-          _userIdController.text = savedUser;
+          _currentUserId = userId;
+          _userIdController.text = userName;
         });
+        _loadSocial();
+        _loadSummary();
       }
 
-      final savedRoom = prefs.getString('last_competition_room');
+      final savedRoom = prefs.getString('last_competition_room_$userId');
       if (savedRoom != null && savedRoom.isNotEmpty) {
         setState(() {
           currentRoomCode = savedRoom;
         });
         _fetchLeaderboard(savedRoom);
+        _loadRoomUnread();
       }
     } catch (_) {}
   }
@@ -116,17 +146,22 @@ class _CompetitionScreenState extends State<CompetitionScreen>
   Future<void> _saveState() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('competition_user_id', _userIdController.text);
+      final userId = _currentUserId;
       if (currentRoomCode != null) {
-        await prefs.setString('last_competition_room', currentRoomCode!);
+        await prefs.setString(
+          'last_competition_room_$userId',
+          currentRoomCode!,
+        );
       } else {
-        await prefs.remove('last_competition_room');
+        await prefs.remove('last_competition_room_$userId');
       }
     } catch (_) {}
   }
 
   @override
   void dispose() {
+    _leaderboardTimer?.cancel();
+    _socialTimer?.cancel();
     _roomNameController.dispose();
     _joinCodeController.dispose();
     _userIdController.dispose();
@@ -154,6 +189,253 @@ class _CompetitionScreenState extends State<CompetitionScreen>
     return headers;
   }
 
+  Future<Map<String, dynamic>> _socialGet(String path) async {
+    final response = await _client
+        .get(Uri.parse('$competitionApiBase$path'), headers: await _headers())
+        .timeout(const Duration(seconds: 10));
+    if (response.statusCode != 200) {
+      throw Exception('HTTP ${response.statusCode}');
+    }
+    return jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> _socialPost(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    final response = await _client
+        .post(
+          Uri.parse('$competitionApiBase$path'),
+          headers: await _headers(),
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 10));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      final detail = jsonDecode(utf8.decode(response.bodyBytes));
+      throw Exception(
+        detail is Map
+            ? detail['detail'] ?? 'HTTP ${response.statusCode}'
+            : 'HTTP ${response.statusCode}',
+      );
+    }
+    return jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+  }
+
+  Future<void> _loadSocial() async {
+    if (_currentUserId.isEmpty || _socialLoading) return;
+    _socialLoading = true;
+    try {
+      final status = await _socialGet('/friends/unread-status');
+      final friends = await _socialGet('/friends/$_currentUserId');
+      if (mounted) {
+        setState(() {
+          _unread = status;
+          _social = friends;
+        });
+      }
+    } catch (_) {
+    } finally {
+      _socialLoading = false;
+    }
+  }
+
+  Future<void> _loadSummary() async {
+    try {
+      final data = await _socialGet('/stats/summary?period=$_summaryPeriod');
+      if (mounted) setState(() => _summary = data);
+    } catch (_) {}
+  }
+
+  Future<void> _loadRoomUnread() async {
+    final code = currentRoomCode;
+    if (code == null || _currentUserId.isEmpty) return;
+    try {
+      final data = await _socialGet('/groups/$code/unread-status');
+      if (mounted && currentRoomCode == code) {
+        setState(
+          () => _roomUnreadCount = (data['unread_count'] as num?)?.toInt() ?? 0,
+        );
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _changeNickname() async {
+    var candidate = _userIdController.text;
+    final newName = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Đổi Biệt Danh Thi Đua'),
+        content: TextFormField(
+          initialValue: candidate,
+          onChanged: (value) => candidate = value,
+          maxLength: 25,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Biệt danh mới (2-25 ký tự)',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, candidate.trim()),
+            child: const Text('Lưu'),
+          ),
+        ],
+      ),
+    );
+    if (newName == null) return;
+    if (newName.length < 2 ||
+        newName.length > 25 ||
+        newName == _userIdController.text) {
+      _showToast('Tên mới phải khác tên cũ và dài 2-25 ký tự', isError: true);
+      return;
+    }
+    try {
+      final result = await _socialPost('/nickname/update', {
+        'nickname': newName,
+      });
+      final displayName = result['display_name'] as String;
+      await AuthApi.updateUserName(displayName);
+      if (mounted) setState(() => _userIdController.text = displayName);
+      await _loadSocial();
+      await _loadSummary();
+      if (currentRoomCode != null) await _fetchLeaderboard(currentRoomCode!);
+      _showToast('Đã đổi biệt danh');
+    } catch (error) {
+      _showToast('Không đổi được tên: $error', isError: true);
+    }
+  }
+
+  Future<void> _friendAction(String path, Map<String, dynamic> body) async {
+    try {
+      await _socialPost(path, body);
+      await _loadSocial();
+      _showToast('Đã cập nhật bạn bè');
+    } catch (error) {
+      _showToast('Lỗi: $error', isError: true);
+    }
+  }
+
+  void _openDirectChat(String friendId, String friendName) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => FractionallySizedBox(
+        heightFactor: 0.85,
+        child: CompetitionDirectChatScreen(
+          friendId: friendId,
+          friendName: friendName,
+          currentUserId: _currentUserId,
+          httpClient: widget.httpClient,
+        ),
+      ),
+    ).then((_) => _loadSocial());
+  }
+
+  void _showFriendsDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => DefaultTabController(
+        length: 2,
+        child: AlertDialog(
+          title: const Text('Quản lý Bạn bè'),
+          content: SizedBox(
+            width: 420,
+            height: 380,
+            child: Column(
+              children: [
+                const TabBar(
+                  tabs: [
+                    Tab(text: 'Lời mời'),
+                    Tab(text: 'Bạn bè'),
+                  ],
+                ),
+                Expanded(
+                  child: TabBarView(
+                    children: [
+                      ListView(
+                        children: [
+                          for (final person
+                              in (_social['incoming_requests'] as List? ?? []))
+                            ListTile(
+                              title: Text(person['display_name'].toString()),
+                              subtitle: const Text('Đã mời bạn'),
+                              trailing: Wrap(
+                                spacing: 4,
+                                children: [
+                                  IconButton(
+                                    tooltip: 'Đồng ý',
+                                    icon: const Icon(Icons.check),
+                                    onPressed: () {
+                                      Navigator.pop(dialogContext);
+                                      _friendAction('/friends/respond', {
+                                        'requester_id': person['user_id'],
+                                        'action': 'accept',
+                                      });
+                                    },
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Từ chối',
+                                    icon: const Icon(Icons.close),
+                                    onPressed: () {
+                                      Navigator.pop(dialogContext);
+                                      _friendAction('/friends/respond', {
+                                        'requester_id': person['user_id'],
+                                        'action': 'decline',
+                                      });
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ),
+                          for (final person
+                              in (_social['sent_requests'] as List? ?? []))
+                            ListTile(
+                              title: Text(person['display_name'].toString()),
+                              subtitle: const Text('Đã gửi lời mời'),
+                            ),
+                        ],
+                      ),
+                      ListView(
+                        children: [
+                          for (final person
+                              in (_social['friends'] as List? ?? []))
+                            ListTile(
+                              title: Text(person['display_name'].toString()),
+                              subtitle: Text(
+                                '${(_unread['unread_by_sender'] as Map?)?[person['user_id']] ?? 0} tin mới',
+                              ),
+                              trailing: const Icon(Icons.chat_bubble_outline),
+                              onTap: () {
+                                Navigator.pop(dialogContext);
+                                _openDirectChat(
+                                  person['user_id'].toString(),
+                                  person['display_name'].toString(),
+                                );
+                              },
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Đóng'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// Tạo phòng mới
   Future<void> _createRoom() async {
     final name = _roomNameController.text.trim();
@@ -178,6 +460,7 @@ class _CompetitionScreenState extends State<CompetitionScreen>
         final code = data['room_code'] as String;
         setState(() {
           currentRoomCode = code;
+          _roomUnreadCount = 0;
           groupName = name;
           durationDays = _durationDays;
           isExpired = false;
@@ -202,12 +485,10 @@ class _CompetitionScreenState extends State<CompetitionScreen>
       await _client.post(
         Uri.parse('$competitionApiBase/groups/join'),
         headers: await _headers(),
-        body: jsonEncode({
-          'room_code': code,
-          'user_id': _userIdController.text.trim(),
-        }),
+        body: jsonEncode({'room_code': code}),
       );
       await _fetchLeaderboard(code);
+      await _loadRoomUnread();
     } catch (_) {}
   }
 
@@ -230,16 +511,17 @@ class _CompetitionScreenState extends State<CompetitionScreen>
       final res = await _client.post(
         Uri.parse('$competitionApiBase/groups/join'),
         headers: await _headers(),
-        body: jsonEncode({
-          'room_code': code,
-          'user_id': _userIdController.text.trim(),
-        }),
+        body: jsonEncode({'room_code': code}),
       );
 
       if (res.statusCode == 200) {
-        setState(() => currentRoomCode = code);
+        setState(() {
+          currentRoomCode = code;
+          _roomUnreadCount = 0;
+        });
         await _saveState();
         await _fetchLeaderboard(code);
+        await _loadRoomUnread();
         _showToast('Vào phòng $code thành công!');
       } else {
         final data = jsonDecode(utf8.decode(res.bodyBytes));
@@ -268,6 +550,7 @@ class _CompetitionScreenState extends State<CompetitionScreen>
         Uri.parse('$competitionApiBase/leaderboard/$code?period=$activePeriod'),
         headers: await _headers(),
       );
+      if (!mounted) return;
 
       if (res.statusCode == 200) {
         final data = jsonDecode(utf8.decode(res.bodyBytes));
@@ -282,7 +565,7 @@ class _CompetitionScreenState extends State<CompetitionScreen>
         setState(() => errorMessage = 'Không thể tải bảng xếp hạng');
       }
     } catch (e) {
-      setState(() => errorMessage = 'Lỗi kết nối khi tải BXH');
+      if (mounted) setState(() => errorMessage = 'Lỗi kết nối khi tải BXH');
     } finally {
       if (mounted) setState(() => isLoading = false);
     }
@@ -300,7 +583,6 @@ class _CompetitionScreenState extends State<CompetitionScreen>
         Uri.parse('$competitionApiBase/submit'),
         headers: await _headers(),
         body: jsonEncode({
-          'user_id': _userIdController.text.trim(),
           'work_min': workMin,
           'completed': completed,
           'pauses': pauses,
@@ -313,6 +595,7 @@ class _CompetitionScreenState extends State<CompetitionScreen>
         if (currentRoomCode != null) {
           await _fetchLeaderboard(currentRoomCode!);
         }
+        await _loadSummary();
       } else {
         _showToast('Lỗi gửi kết quả phiên', isError: true);
       }
@@ -419,6 +702,7 @@ class _CompetitionScreenState extends State<CompetitionScreen>
                 groupName = null;
                 isExpired = false;
                 _selectedPeriod = 'all';
+                _roomUnreadCount = 0;
               });
               _saveState();
               _showToast('Đã rời phòng thi đua');
@@ -560,6 +844,43 @@ class _CompetitionScreenState extends State<CompetitionScreen>
 
     return Scaffold(
       backgroundColor: AppColors.stitchSurface,
+      floatingActionButton: currentRoomCode == null
+          ? null
+          : Stack(
+              clipBehavior: Clip.none,
+              children: [
+                FloatingActionButton(
+                  key: const Key('btnRoomChat'),
+                  tooltip: 'Chat phòng',
+                  onPressed: _openRoomChat,
+                  child: const Icon(Icons.chat_bubble_rounded),
+                ),
+                if (_roomUnreadCount > 0)
+                  Positioned(
+                    top: -5,
+                    right: -5,
+                    child: Container(
+                      key: const Key('roomChatUnreadBadge'),
+                      height: 20,
+                      constraints: const BoxConstraints(minWidth: 20),
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        _roomUnreadCount > 99 ? '99+' : '$_roomUnreadCount',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
       body: SafeArea(
         child: Column(
           children: [
@@ -573,6 +894,21 @@ class _CompetitionScreenState extends State<CompetitionScreen>
         ),
       ),
     );
+  }
+
+  void _openRoomChat() {
+    if (currentRoomCode == null) return;
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute<void>(
+            builder: (_) => CompetitionChatScreen(
+              roomCode: currentRoomCode!,
+              currentUserId: _currentUserId,
+              httpClient: widget.httpClient,
+            ),
+          ),
+        )
+        .then((_) => _loadRoomUnread());
   }
 
   // ══════════════════════════════════════════════════════════
@@ -591,153 +927,191 @@ class _CompetitionScreenState extends State<CompetitionScreen>
         ),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // Left: Back button & Synapse AI Logo
-          Row(
-            children: [
-              InkWell(
-                onTap: () => Navigator.of(context).maybePop(),
-                borderRadius: BorderRadius.circular(12),
-                child: Container(
+          // Left: Back button & POMO SMART Logo
+          Expanded(
+            child: Row(
+              children: [
+                InkWell(
+                  onTap: () => Navigator.of(context).maybePop(),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: AppColors.stitchSurfaceContainer,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.arrow_back_ios_new_rounded,
+                      color: AppColors.stitchOnSurface,
+                      size: 16,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Container(
                   width: 36,
                   height: 36,
                   decoration: BoxDecoration(
                     color: AppColors.stitchSurfaceContainer,
                     borderRadius: BorderRadius.circular(10),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.stitchPrimaryContainer.withValues(
+                          alpha: 0.25,
+                        ),
+                        blurRadius: 10,
+                      ),
+                    ],
                   ),
                   child: const Icon(
-                    Icons.arrow_back_ios_new_rounded,
-                    color: AppColors.stitchOnSurface,
-                    size: 16,
+                    Icons.psychology_rounded,
+                    color: AppColors.stitchPrimary,
+                    size: 20,
                   ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: AppColors.stitchSurfaceContainer,
-                  borderRadius: BorderRadius.circular(10),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.stitchPrimaryContainer.withValues(
-                        alpha: 0.25,
-                      ),
-                      blurRadius: 10,
-                    ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.psychology_rounded,
-                  color: AppColors.stitchPrimary,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Synapse',
-                        style: GoogleFonts.outfit(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.stitchOnSurface,
-                          letterSpacing: -0.2,
-                        ),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              'POMO SMART',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.outfit(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.stitchOnSurface,
+                                letterSpacing: -0.2,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.stitchPrimaryContainer
+                                  .withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              'AI',
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.stitchPrimary,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 4),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 5,
-                          vertical: 1,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.stitchPrimaryContainer.withValues(
-                            alpha: 0.2,
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              color: isBleOnline
+                                  ? AppColors.stitchTertiary
+                                  : AppColors.stitchOutline,
+                              shape: BoxShape.circle,
+                            ),
                           ),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          'AI',
-                          style: GoogleFonts.plusJakartaSans(
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.stitchPrimary,
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              isBleOnline
+                                  ? 'TFT LCD Sync 12ms'
+                                  : 'Offline Mode',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.plusJakartaSans(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.stitchOnSurfaceVariant,
+                              ),
+                            ),
                           ),
-                        ),
+                        ],
                       ),
                     ],
                   ),
-                  const SizedBox(height: 2),
-                  Row(
-                    children: [
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: BoxDecoration(
-                          color: isBleOnline
-                              ? AppColors.stitchTertiary
-                              : AppColors.stitchOutline,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        isBleOnline ? 'TFT LCD Sync 12ms' : 'Offline Mode',
-                        style: GoogleFonts.plusJakartaSans(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.stitchOnSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ],
+                ),
+              ],
+            ),
           ),
 
           // Right: Watch Battery Badge & User Profile
           Row(
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.stitchSurfaceLow,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.watch_rounded,
-                      size: 14,
-                      color: isBleOnline
-                          ? AppColors.stitchSecondaryContainer
-                          : AppColors.stitchOutline,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      isBleOnline ? '98%' : 'Chưa kết nối',
-                      style: GoogleFonts.outfit(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: isBleOnline
-                            ? AppColors.stitchSecondary
-                            : AppColors.stitchOutline,
+              Stack(
+                children: [
+                  IconButton(
+                    tooltip: 'Bạn bè',
+                    onPressed: _showFriendsDialog,
+                    icon: const Icon(Icons.group_rounded, size: 23),
+                  ),
+                  if ((_unread['total'] as num? ?? 0) > 0)
+                    Positioned(
+                      right: 2,
+                      top: 0,
+                      child: CircleAvatar(
+                        radius: 9,
+                        backgroundColor: Colors.red,
+                        child: Text(
+                          '${_unread['total']}',
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: Colors.white,
+                          ),
+                        ),
                       ),
                     ),
-                  ],
-                ),
+                ],
               ),
+              if (MediaQuery.sizeOf(context).width >= 460)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.stitchSurfaceLow,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.watch_rounded,
+                        size: 14,
+                        color: isBleOnline
+                            ? AppColors.stitchSecondaryContainer
+                            : AppColors.stitchOutline,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        isBleOnline ? '98%' : 'Chưa kết nối',
+                        style: GoogleFonts.outfit(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: isBleOnline
+                              ? AppColors.stitchSecondary
+                              : AppColors.stitchOutline,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               const SizedBox(width: 8),
               Container(
                 width: 32,
@@ -763,7 +1137,7 @@ class _CompetitionScreenState extends State<CompetitionScreen>
   // ARENA VIEW (Màn chính lúc đã vào phòng thi đua)
   // ══════════════════════════════════════════════════════════
   Widget _buildArenaView(BleService? ble) {
-    final currentUserId = _userIdController.text.trim();
+    final currentUserId = _currentUserId;
     final userIndex = leaderboard.indexWhere(
       (item) => item['user_id'] == currentUserId,
     );
@@ -781,8 +1155,7 @@ class _CompetitionScreenState extends State<CompetitionScreen>
           children: [
             // 1. Room Header Banner (Bento Card)
             _buildRoomHeaderBanner(),
-            const SizedBox(height: 14),
-
+            const SizedBox(height: 10),
             // 2. Time Period Filter Chips
             _buildPeriodFilterChips(),
             const SizedBox(height: 14),
@@ -815,6 +1188,9 @@ class _CompetitionScreenState extends State<CompetitionScreen>
                 _buildChasersSection(),
                 const SizedBox(height: 16),
               ],
+
+              _buildMemberActions(),
+              const SizedBox(height: 16),
 
               // 6. Real-time Arena Telemetry Card & Actions
               _buildArenaTelemetryCard(ble),
@@ -868,44 +1244,51 @@ class _CompetitionScreenState extends State<CompetitionScreen>
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.stitchSurfaceLowest,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 6,
-                            height: 6,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: isExpired
-                                  ? AppColors.stitchError
-                                  : AppColors.stitchTertiary,
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.stitchSurfaceLowest,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: isExpired
+                                    ? AppColors.stitchError
+                                    : AppColors.stitchTertiary,
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 5),
-                          Text(
-                            isExpired
-                                ? 'ĐÃ KẾT THÚC'
-                                : 'ĐANG DIỄN RA • CÒN $daysRemaining NGÀY',
-                            style: GoogleFonts.plusJakartaSans(
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              color: isExpired
-                                  ? AppColors.stitchError
-                                  : AppColors.stitchTertiary,
-                              letterSpacing: 0.4,
+                            const SizedBox(width: 5),
+                            Expanded(
+                              child: Text(
+                                isExpired
+                                    ? 'ĐÃ KẾT THÚC'
+                                    : 'ĐANG DIỄN RA • CÒN $daysRemaining NGÀY',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: isExpired
+                                      ? AppColors.stitchError
+                                      : AppColors.stitchTertiary,
+                                  letterSpacing: 0.4,
+                                ),
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
+                    const SizedBox(width: 8),
                     InkWell(
                       key: const Key('btnSwitchRoom'),
                       onTap: _showSwitchRoomModal,
@@ -1040,7 +1423,10 @@ class _CompetitionScreenState extends State<CompetitionScreen>
                               radius: 14,
                               backgroundColor: AppColors.stitchSurfaceHighest,
                               child: Text(
-                                (leaderboard[i]['user_id'] as String? ?? 'U')
+                                ((leaderboard[i]['display_name'] ??
+                                                leaderboard[i]['user_id'])
+                                            as String? ??
+                                        'U')
                                     .substring(0, 1)
                                     .toUpperCase(),
                                 style: GoogleFonts.outfit(
@@ -1290,7 +1676,8 @@ class _CompetitionScreenState extends State<CompetitionScreen>
       );
     }
 
-    final userId = data['user_id'] as String? ?? 'N/A';
+    final userId =
+        (data['display_name'] ?? data['user_id']) as String? ?? 'N/A';
     final workMin = data['work_min'] ?? 0;
     final timeStr = _formatWorkDuration(workMin);
 
@@ -1416,14 +1803,18 @@ class _CompetitionScreenState extends State<CompetitionScreen>
                 ),
                 const SizedBox(width: 2),
               ],
-              Text(
-                tierTag,
-                style: GoogleFonts.plusJakartaSans(
-                  fontSize: 9,
-                  fontWeight: FontWeight.bold,
-                  color: isGold
-                      ? const Color(0xFFFBBF24)
-                      : AppColors.stitchOnSurfaceVariant,
+              Flexible(
+                child: Text(
+                  tierTag,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                    color: isGold
+                        ? const Color(0xFFFBBF24)
+                        : AppColors.stitchOnSurfaceVariant,
+                  ),
                 ),
               ),
             ],
@@ -1606,13 +1997,15 @@ class _CompetitionScreenState extends State<CompetitionScreen>
                             color: Color(0xFFF59E0B),
                           ),
                           const SizedBox(width: 2),
-                          Text(
-                            '$completed phiên $gapText',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.inter(
-                              fontSize: 11,
-                              color: AppColors.stitchOnSurfaceVariant,
+                          Expanded(
+                            child: Text(
+                              '$completed phiên $gapText',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.inter(
+                                fontSize: 11,
+                                color: AppColors.stitchOnSurfaceVariant,
+                              ),
                             ),
                           ),
                         ],
@@ -1674,15 +2067,20 @@ class _CompetitionScreenState extends State<CompetitionScreen>
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              'ĐỐI THỦ BÁM ĐUỔI SÁT NÚT',
-              style: GoogleFonts.plusJakartaSans(
-                fontSize: 11,
-                fontWeight: FontWeight.bold,
-                color: AppColors.stitchOnSurfaceVariant,
-                letterSpacing: 0.6,
+            Expanded(
+              child: Text(
+                'ĐỐI THỦ BÁM ĐUỔI SÁT NÚT',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.stitchOnSurfaceVariant,
+                  letterSpacing: 0.6,
+                ),
               ),
             ),
+            const SizedBox(width: 8),
             Text(
               'Top 4 - ${leaderboard.length}',
               style: GoogleFonts.plusJakartaSans(
@@ -1701,7 +2099,8 @@ class _CompetitionScreenState extends State<CompetitionScreen>
           itemBuilder: (ctx, i) {
             final entry = chasers[i];
             final rank = entry['rank'] ?? (i + 4);
-            final userId = entry['user_id'] as String? ?? 'N/A';
+            final userId =
+                (entry['display_name'] ?? entry['user_id']) as String? ?? 'N/A';
             final workMin = entry['work_min'] ?? 0;
             final completed = entry['completed'] ?? 0;
 
@@ -1718,88 +2117,101 @@ class _CompetitionScreenState extends State<CompetitionScreen>
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    children: [
-                      SizedBox(
-                        width: 24,
-                        child: Text(
-                          '#$rank',
-                          style: GoogleFonts.outfit(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.stitchOnSurfaceVariant,
+                  Expanded(
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 24,
+                          child: Text(
+                            '#$rank',
+                            style: GoogleFonts.outfit(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.stitchOnSurfaceVariant,
+                            ),
                           ),
                         ),
-                      ),
-                      CircleAvatar(
-                        radius: 16,
-                        backgroundColor: AppColors.stitchSurfaceContainer,
-                        child: Text(
-                          userId.isNotEmpty
-                              ? userId.substring(0, 1).toUpperCase()
-                              : '?',
-                          style: GoogleFonts.outfit(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.stitchOnSurface,
+                        CircleAvatar(
+                          radius: 16,
+                          backgroundColor: AppColors.stitchSurfaceContainer,
+                          child: Text(
+                            userId.isNotEmpty
+                                ? userId.substring(0, 1).toUpperCase()
+                                : '?',
+                            style: GoogleFonts.outfit(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.stitchOnSurface,
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 10),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                userId,
-                                style: GoogleFonts.plusJakartaSans(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.stitchOnSurface,
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 4,
-                                  vertical: 1,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: AppColors.stitchSurfaceHighest,
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(
-                                  'Bền bỉ',
-                                  style: GoogleFonts.plusJakartaSans(
-                                    fontSize: 9,
-                                    color: AppColors.stitchOnSurfaceVariant,
+                              Row(
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      userId,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.plusJakartaSans(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.stitchOnSurface,
+                                      ),
+                                    ),
                                   ),
-                                ),
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 4,
+                                      vertical: 1,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.stitchSurfaceHighest,
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      'Bền bỉ',
+                                      style: GoogleFonts.plusJakartaSans(
+                                        fontSize: 9,
+                                        color: AppColors.stitchOnSurfaceVariant,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.local_fire_department_rounded,
+                                    size: 12,
+                                    color: Color(0xFFF59E0B),
+                                  ),
+                                  const SizedBox(width: 2),
+                                  Flexible(
+                                    child: Text(
+                                      '$completed phiên tập trung',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.inter(
+                                        fontSize: 11,
+                                        color: AppColors.stitchOnSurfaceVariant,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
-                          Row(
-                            children: [
-                              const Icon(
-                                Icons.local_fire_department_rounded,
-                                size: 12,
-                                color: Color(0xFFF59E0B),
-                              ),
-                              const SizedBox(width: 2),
-                              Text(
-                                '$completed phiên tập trung',
-                                style: GoogleFonts.inter(
-                                  fontSize: 11,
-                                  color: AppColors.stitchOnSurfaceVariant,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ],
+                        ),
+                      ],
+                    ),
                   ),
+                  const SizedBox(width: 8),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
@@ -1854,48 +2266,57 @@ class _CompetitionScreenState extends State<CompetitionScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: AppColors.stitchSecondaryContainer.withValues(
-                        alpha: 0.15,
-                      ),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(
-                      Icons.watch_rounded,
-                      color: AppColors.stitchSecondaryContainer,
-                      size: 20,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Đồng bộ TFT LCD Watch',
-                        style: GoogleFonts.outfit(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.stitchOnSurface,
+              Expanded(
+                child: Row(
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: AppColors.stitchSecondaryContainer.withValues(
+                          alpha: 0.15,
                         ),
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                      Text(
-                        isBleOnline
-                            ? 'Đồng bộ điểm tự động qua Bluetooth LE'
-                            : 'Đang kết nối ngoại tuyến với máy chủ',
-                        style: GoogleFonts.inter(
-                          fontSize: 11,
-                          color: AppColors.stitchOnSurfaceVariant,
-                        ),
+                      child: const Icon(
+                        Icons.watch_rounded,
+                        color: AppColors.stitchSecondaryContainer,
+                        size: 20,
                       ),
-                    ],
-                  ),
-                ],
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Đồng bộ TFT LCD Watch',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.outfit(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.stitchOnSurface,
+                            ),
+                          ),
+                          Text(
+                            isBleOnline
+                                ? 'Đồng bộ điểm tự động qua Bluetooth LE'
+                                : 'Đang kết nối ngoại tuyến với máy chủ',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              color: AppColors.stitchOnSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
+              const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
@@ -2211,32 +2632,62 @@ class _CompetitionScreenState extends State<CompetitionScreen>
                   ),
                 ),
                 const SizedBox(height: 8),
-                TextField(
-                  controller: _userIdController,
-                  style: GoogleFonts.plusJakartaSans(
-                    color: AppColors.stitchOnSurface,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  decoration: InputDecoration(
-                    hintText: 'Ví dụ: user_thang',
-                    hintStyle: GoogleFonts.plusJakartaSans(
-                      color: AppColors.stitchOutline,
+                Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: LinearGradient(
+                          colors: [Colors.deepPurple, Colors.orangeAccent],
+                        ),
+                      ),
+                      child: const Icon(Icons.person, color: Colors.white),
                     ),
-                    filled: true,
-                    fillColor: AppColors.stitchSurfaceLowest,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _userIdController.text.isEmpty
+                                ? 'Đang tải tài khoản'
+                                : _userIdController.text,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const Text(
+                            '✔ Đã xác thực',
+                            style: TextStyle(
+                              color: Colors.greenAccent,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    prefixIcon: const Icon(
-                      Icons.person_rounded,
-                      color: AppColors.stitchPrimary,
+                    TextButton.icon(
+                      onPressed: _changeNickname,
+                      icon: const Icon(Icons.edit_rounded, size: 16),
+                      label: const Text('Đổi tên'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.orangeAccent,
+                      ),
                     ),
-                  ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  '🛡️ Bảo mật tài khoản • Nhấn Đổi tên để cập nhật biệt danh',
+                  style: TextStyle(fontSize: 11),
                 ),
               ],
             ),
           ),
+          const SizedBox(height: 16),
+          _buildSummaryCard(),
           const SizedBox(height: 16),
 
           // Bento Card 1: Nhập PIN phòng
@@ -2419,6 +2870,199 @@ class _CompetitionScreenState extends State<CompetitionScreen>
           ),
           const SizedBox(height: 24),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSummaryCard() {
+    final days = (_summary['last_7_days'] as List? ?? [])
+        .cast<Map<String, dynamic>>();
+    final percent = ((_summary['completion_percent'] as num?)?.toDouble() ?? 0)
+        .clamp(0.0, 100.0);
+    final top = (_summary['top_five'] as List? ?? [])
+        .cast<Map<String, dynamic>>();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Tiến độ năng suất',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Làm mới',
+                  onPressed: _loadSummary,
+                  icon: const Icon(Icons.refresh_rounded),
+                ),
+              ],
+            ),
+            Wrap(
+              spacing: 8,
+              children: [
+                for (final p in ['today', 'week', 'month'])
+                  ChoiceChip(
+                    label: Text(
+                      {'today': 'Ngày', 'week': 'Tuần', 'month': 'Tháng'}[p]!,
+                    ),
+                    selected: _summaryPeriod == p,
+                    onSelected: (_) {
+                      setState(() => _summaryPeriod = p);
+                      _loadSummary();
+                    },
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Center(
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  SizedBox(
+                    width: 96,
+                    height: 96,
+                    child: CircularProgressIndicator(
+                      value: percent / 100,
+                      strokeWidth: 9,
+                    ),
+                  ),
+                  Text(
+                    '${percent.toStringAsFixed(0)}%',
+                    style: const TextStyle(
+                      fontSize: 21,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Center(
+              child: Text(
+                '${_summary['minutes'] ?? 0}/${_summary['target_minutes'] ?? 0} phút · Chuỗi ${_summary['streak'] ?? 0} ngày',
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              '7 ngày qua',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            SizedBox(
+              height: 78,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  for (final day in days)
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 3),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Expanded(
+                              child: Align(
+                                alignment: Alignment.bottomCenter,
+                                child: Container(
+                                  height:
+                                      (((day['minutes'] as num?)?.toDouble() ??
+                                                  0) /
+                                              120 *
+                                              50)
+                                          .clamp(3, 50)
+                                          .toDouble(),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.stitchPrimary,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Text(
+                              day['date'].toString().substring(8),
+                              style: const TextStyle(fontSize: 10),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Bảng Vàng Cao Thủ',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            for (var i = 0; i < top.length; i++)
+              Text(
+                '${i + 1}. ${top[i]['display_name']} · ${top[i]['score']} PRS',
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMemberActions() {
+    final friends = (_social['friends'] as List? ?? []);
+    final sent = (_social['sent_requests'] as List? ?? []);
+    final incoming = (_social['incoming_requests'] as List? ?? []);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Thành viên trong phòng',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            for (final entry in leaderboard)
+              if (entry['user_id'] != _currentUserId)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    (entry['display_name'] ?? entry['user_id']).toString(),
+                  ),
+                  subtitle: Text('${entry['score'] ?? 0} PRS'),
+                  trailing: Builder(
+                    builder: (context) {
+                      final id = entry['user_id'].toString();
+                      final name = (entry['display_name'] ?? id).toString();
+                      if (friends.any((person) => person['user_id'] == id)) {
+                        final count =
+                            (_unread['unread_by_sender'] as Map?)?[id] ?? 0;
+                        return TextButton(
+                          onPressed: () => _openDirectChat(id, name),
+                          child: Text('💬 Chat${count > 0 ? ' ($count)' : ''}'),
+                        );
+                      }
+                      if (incoming.any((person) => person['user_id'] == id)) {
+                        return TextButton(
+                          onPressed: () => _friendAction('/friends/respond', {
+                            'requester_id': id,
+                            'action': 'accept',
+                          }),
+                          child: const Text('✓ Chấp nhận'),
+                        );
+                      }
+                      if (sent.any((person) => person['user_id'] == id)) {
+                        return const Text('⏳ Đã mời');
+                      }
+                      return TextButton(
+                        onPressed: () =>
+                            _friendAction('/friends/add', {'receiver_id': id}),
+                        child: const Text('+ Kết bạn'),
+                      );
+                    },
+                  ),
+                ),
+          ],
+        ),
       ),
     );
   }

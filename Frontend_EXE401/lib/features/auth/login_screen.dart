@@ -1,7 +1,14 @@
+import "dart:async";
+import "package:flutter/foundation.dart" show kIsWeb;
 import "package:flutter/material.dart";
+import "package:google_sign_in/google_sign_in.dart";
+import "../../core/auth/google_button_stub.dart"
+    if (dart.library.js_interop) "../../core/auth/google_button_web.dart"
+    as google_web;
 import "package:google_fonts/google_fonts.dart";
 import "../../core/api/auth_api.dart";
 import "../../core/api/api_client.dart";
+import "../../core/auth/google_auth_service.dart";
 import "../../core/theme/app_colors.dart";
 
 /// Màn hình Đăng Nhập / Đăng Ký (Authentication & Onboarding)
@@ -19,11 +26,16 @@ class _LoginScreenState extends State<LoginScreen>
   late TabController _tab;
   final _emailC = TextEditingController();
   final _passC = TextEditingController();
+  final _confirmPassC = TextEditingController();
   final _nameC = TextEditingController();
   final _formKey = GlobalKey<FormState>();
 
   bool _loading = false;
   bool _obscure = true;
+  bool _obscureConfirm = true;
+  bool _googleReady = false;
+  String? _googleSetupError;
+  StreamSubscription<GoogleSignInAuthenticationEvent>? _googleEvents;
   String? _error;
 
   @override
@@ -35,13 +47,82 @@ class _LoginScreenState extends State<LoginScreen>
         setState(() => _error = null);
       }
     });
+    _initializeGoogle();
+  }
+
+  Future<void> _initializeGoogle() async {
+    try {
+      await GoogleAuthService.initialize();
+      if (!mounted) return;
+      _googleEvents = GoogleSignIn.instance.authenticationEvents.listen(
+        (event) {
+          if (kIsWeb && event is GoogleSignInAuthenticationEventSignIn) {
+            _completeGoogleLogin(event.user);
+          }
+        },
+      );
+      setState(() => _googleReady = true);
+    } catch (error) {
+      if (mounted) {
+        setState(() => _googleSetupError = error is StateError
+            ? error.message
+            : 'Không thể khởi tạo đăng nhập Google.');
+      }
+    }
+  }
+
+  Future<void> _signInGoogle() async {
+    if (_loading) return;
+    setState(() { _loading = true; _error = null; });
+    try {
+      await GoogleAuthService.initialize();
+      if (!GoogleSignIn.instance.supportsAuthenticate()) {
+        throw StateError('Đăng nhập Google chưa được hỗ trợ trên thiết bị này.');
+      }
+      await GoogleSignIn.instance.signOut();
+      final user = await GoogleSignIn.instance.authenticate();
+      await _completeGoogleLogin(user);
+    } on GoogleSignInException catch (error) {
+      if (mounted && error.code != GoogleSignInExceptionCode.canceled) {
+        setState(() => _error = 'Không thể đăng nhập Google. Kiểm tra cấu hình OAuth và thử lại.');
+      }
+    } on StateError catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Không thể đăng nhập Google. Vui lòng thử lại.');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _completeGoogleLogin(GoogleSignInAccount user) async {
+    if (!mounted) return;
+    setState(() { _loading = true; _error = null; });
+    try {
+      final idToken = user.authentication.idToken;
+      if (idToken == null || idToken.isEmpty) {
+        throw StateError('Google không cung cấp ID token.');
+      }
+      await AuthApi.loginWithGoogle(idToken);
+      if (mounted) Navigator.pushNamedAndRemoveUntil(context, '/', (_) => false);
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } on StateError catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Không thể kết nối máy chủ. Vui lòng thử lại.');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   @override
   void dispose() {
+    _googleEvents?.cancel();
     _tab.dispose();
     _emailC.dispose();
     _passC.dispose();
+    _confirmPassC.dispose();
     _nameC.dispose();
     super.dispose();
   }
@@ -72,11 +153,19 @@ class _LoginScreenState extends State<LoginScreen>
         Navigator.pushReplacementNamed(context, "/");
       }
     } on ApiException catch (e) {
-      setState(() => _error = e.message);
+      if (mounted) {
+        setState(() => _error = e.statusCode == 409
+            ? "Email này đã được đăng ký. Vui lòng dùng email khác hoặc đăng nhập."
+            : e.message);
+      }
     } catch (e) {
-      setState(() => _error = "Không thể kết nối Backend. Kiểm tra kết nối mạng hoặc máy chủ.");
+      if (mounted) {
+        setState(() => _error = "Không thể kết nối Backend. Kiểm tra kết nối mạng hoặc máy chủ.");
+      }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -163,7 +252,7 @@ class _LoginScreenState extends State<LoginScreen>
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          "v2.5 Connected Edition".toUpperCase(),
+                          "POMO SMART v2.5".toUpperCase(),
                           style: GoogleFonts.plusJakartaSans(
                             fontSize: 10,
                             fontWeight: FontWeight.w700,
@@ -177,74 +266,22 @@ class _LoginScreenState extends State<LoginScreen>
 
                   const SizedBox(height: 20),
 
-                  // Glowing Watch Glyph Icon
-                  Stack(
-                    alignment: Alignment.center,
-                    clipBehavior: Clip.none,
-                    children: [
-                      Container(
-                        width: 76,
-                        height: 76,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(22),
-                          gradient: const LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              AppColors.stitchPrimaryContainer,
-                              AppColors.stitchSecondaryContainer,
-                            ],
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppColors.stitchPrimaryContainer.withValues(alpha: 0.4),
-                              blurRadius: 24,
-                              offset: const Offset(0, 8),
-                            ),
-                          ],
-                        ),
-                        padding: const EdgeInsets.all(2),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(20),
-                            color: AppColors.stitchSurfaceLowest,
-                          ),
-                          child: const Icon(
-                            Icons.watch_rounded,
-                            color: AppColors.stitchPrimary,
-                            size: 38,
-                          ),
-                        ),
-                      ),
-                      Positioned(
-                        bottom: -4,
-                        right: -4,
-                        child: Container(
-                          width: 24,
-                          height: 24,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: AppColors.stitchSurfaceHigh,
-                            border: Border.all(
-                              color: AppColors.stitchSurface,
-                              width: 2,
-                            ),
-                          ),
-                          child: const Icon(
-                            Icons.bolt,
-                            color: AppColors.stitchTertiary,
-                            size: 14,
-                          ),
-                        ),
-                      ),
-                    ],
+                  // POMO SMART logo
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(20),
+                    child: Image.asset(
+                      'assets/images/pomo_smart_mascot.png',
+                      width: 76,
+                      height: 76,
+                      fit: BoxFit.cover,
+                    ),
                   ),
 
                   const SizedBox(height: 14),
 
                   // App Title & Subtitle
                   Text(
-                    "AI Watch",
+                    "POMO SMART",
                     style: GoogleFonts.outfit(
                       fontSize: 32,
                       fontWeight: FontWeight.w700,
@@ -254,7 +291,7 @@ class _LoginScreenState extends State<LoginScreen>
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    "Productivity Ecosystem & TFT LCD Companion",
+                    "Smart Pomodoro & IoT Watch Companion",
                     style: GoogleFonts.inter(
                       fontSize: 13,
                       fontWeight: FontWeight.w400,
@@ -493,6 +530,39 @@ class _LoginScreenState extends State<LoginScreen>
                             },
                           ),
 
+                          if (isRegister) ...[
+                            const SizedBox(height: 16),
+                            _buildFieldLabel("Xác nhận mật khẩu", isRequired: true),
+                            const SizedBox(height: 6),
+                            _buildTextInput(
+                              controller: _confirmPassC,
+                              hintText: "Nhập lại mật khẩu",
+                              prefixIcon: Icons.lock_outline_rounded,
+                              obscureText: _obscureConfirm,
+                              suffixWidget: IconButton(
+                                icon: Icon(
+                                  _obscureConfirm
+                                      ? Icons.visibility_outlined
+                                      : Icons.visibility_off_outlined,
+                                  color: AppColors.stitchOutline,
+                                  size: 18,
+                                ),
+                                onPressed: () => setState(
+                                  () => _obscureConfirm = !_obscureConfirm,
+                                ),
+                              ),
+                              validator: (v) {
+                                if (v == null || v.isEmpty) {
+                                  return "Vui lòng xác nhận mật khẩu";
+                                }
+                                if (v != _passC.text) {
+                                  return "Mật khẩu xác nhận không khớp";
+                                }
+                                return null;
+                              },
+                            ),
+                          ],
+
                           const SizedBox(height: 14),
 
                           // Live Hardware Status Widget
@@ -664,31 +734,23 @@ class _LoginScreenState extends State<LoginScreen>
 
                           const SizedBox(height: 18),
 
-                          // Quick Social Login Buttons Row
-                          Row(
-                            children: [
+                          // Web requires the Google Identity Services button.
+                          if (kIsWeb)
+                            _googleReady
+                                ? Center(child: google_web.renderButton())
+                                : Text(
+                                    _googleSetupError ?? 'Đang tải đăng nhập Google...',
+                                    style: const TextStyle(color: AppColors.stitchOutline),
+                                  )
+                          else
+                            Row(children: [
                               _buildSocialButton(
                                 label: "Google",
                                 icon: Icons.g_mobiledata_rounded,
                                 iconColor: Colors.redAccent,
-                                onTap: () => _showSocialToast("Google"),
+                                onTap: _loading ? () {} : _signInGoogle,
                               ),
-                              const SizedBox(width: 10),
-                              _buildSocialButton(
-                                label: "Apple",
-                                icon: Icons.apple_rounded,
-                                iconColor: Colors.white,
-                                onTap: () => _showSocialToast("Apple ID"),
-                              ),
-                              const SizedBox(width: 10),
-                              _buildSocialButton(
-                                label: "GitHub",
-                                icon: Icons.code_rounded,
-                                iconColor: AppColors.stitchSecondary,
-                                onTap: () => _showSocialToast("GitHub"),
-                              ),
-                            ],
-                          ),
+                            ]),
                         ],
                       ),
                     ),
@@ -955,13 +1017,4 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  void _showSocialToast(String provider) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text("Đăng nhập với $provider đang được kết nối."),
-        backgroundColor: AppColors.stitchSurfaceHigh,
-        duration: const Duration(seconds: 2),
-      ),
-    );
-  }
 }

@@ -1,11 +1,11 @@
 {
-    "name": "eink_clock",
-    "short_name": "eink_clock",
+    "name": "POMO SMART",
+    "short_name": "POMO SMART",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "App dieu khien dong ho Eink Clock qua Bluetooth BLE",
+    "description": "Ứng dụng POMO SMART - Đồng hồ thông minh Pomodoro IoT",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

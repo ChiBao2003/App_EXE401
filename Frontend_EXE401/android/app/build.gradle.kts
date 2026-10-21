@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.daonguyen.iot47.eink_clock"
+    namespace = "EXE401.Project"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = "28.2.13676358"
 
@@ -16,8 +16,7 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.daonguyen.iot47.eink_clock"
+        applicationId = "EXE401.Project"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion // flutter_bluetooth_serial yêu cầu minSdk >= 19

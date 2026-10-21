@@ -216,7 +216,7 @@ class _WellbeingScreenState extends State<WellbeingScreen>
             ),
           ),
           content: Text(
-            'Bật quyền cho "TFT LCD Clock" trong danh sách cài đặt hệ thống, sau đó quay lại ứng dụng để cập nhật dữ liệu.',
+            'Bật quyền cho "POMO SMART" trong danh sách cài đặt hệ thống, sau đó quay lại ứng dụng để cập nhật dữ liệu.',
             style: GoogleFonts.inter(
               color: AppColors.stitchOnSurfaceVariant,
               fontSize: 13,
@@ -1367,7 +1367,7 @@ class _WellbeingScreenState extends State<WellbeingScreen>
           'Lời khuyên cân bằng: Hãy nghỉ mắt 5 phút sau mỗi 50 phút làm việc liên tục trên màn hình để bảo vệ thị lực và duy trì năng lượng.';
     }
 
-    final deviceTitle = ble.device?.platformName ?? 'Đồng hồ Synapse TFT LCD';
+    final deviceTitle = ble.device?.platformName ?? 'Đồng hồ POMO SMART';
 
     return Container(
       padding: const EdgeInsets.all(20),

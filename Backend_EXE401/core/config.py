@@ -19,6 +19,10 @@ DATABASE_NAME: str = os.getenv("DATABASE_NAME", "Pomodoro_App")
 SECRET_KEY: str = os.getenv("SECRET_KEY", "CHANGE_ME_IN_PRODUCTION_super_secret_key_2024")
 ALGORITHM: str = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "10080"))  # 7 ngay
+GOOGLE_WEB_CLIENT_ID: str = os.getenv(
+    "GOOGLE_WEB_CLIENT_ID",
+    "3874930244-45sqv2n9btc1dr6avq428353d4vnlb2f.apps.googleusercontent.com",
+)
 
 # ============================================================
 # External APIs

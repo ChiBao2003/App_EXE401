@@ -29,6 +29,13 @@ async def init_db_indexes() -> None:
             sparse=True,
             name="uniq_productivity_session_id"
         )
+        await db["users"].create_index(
+            [("email", 1)], unique=True, name="uniq_user_email"
+        )
+        await db["users"].create_index(
+            [("google_sub", 1)], unique=True, sparse=True,
+            name="uniq_google_sub"
+        )
         print("[OK] Khoi tao MongoDB unique indexes thanh cong.")
     except Exception as e:
         print(f"[WARN] Khoi tao indexes (khong anh huong he thong): {e}")

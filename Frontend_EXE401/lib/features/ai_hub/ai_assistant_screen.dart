@@ -332,7 +332,7 @@ class _AIAssistantScreenState extends State<AIAssistantScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        "SYNAPSE OS",
+                        "POMO SMART",
                         style: GoogleFonts.plusJakartaSans(
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
@@ -477,7 +477,7 @@ class _AIAssistantScreenState extends State<AIAssistantScreen> {
                         children: [
                           Flexible(
                             child: Text(
-                              "Synapse Coach",
+                              "POMO SMART Coach",
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: GoogleFonts.outfit(
@@ -869,7 +869,7 @@ class _AIAssistantScreenState extends State<AIAssistantScreen> {
           ),
           const SizedBox(width: 10),
           Text(
-            "Synapse Coach đang suy luận & tổng hợp lịch trình...",
+            "POMO SMART Coach đang suy luận & tổng hợp lịch trình...",
             style: GoogleFonts.inter(
               fontSize: 12,
               color: AppColors.stitchOnSurfaceVariant,
@@ -1094,7 +1094,7 @@ class _ScheduleCardState extends State<_ScheduleCard> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Đã đồng bộ vào Lịch tuần & Synapse Matrix thành công!',
+              'Đã đồng bộ vào Lịch tuần & POMO SMART Matrix thành công!',
             ),
             backgroundColor: AppColors.stitchTertiaryContainer,
           ),

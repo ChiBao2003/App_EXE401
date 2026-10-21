@@ -230,6 +230,9 @@ class _WeeklyScheduleScreenState extends State<WeeklyScheduleScreen> {
       if (res.statusCode == 200) {
         _showToast('Đã thêm lịch nhắc nhở mới!');
         await _fetchSchedules();
+        if (mounted && context.read<BleService>().isConnected) {
+          await _syncToEsp32();
+        }
       } else {
         _showToast('Không thể tạo lịch (${res.statusCode})', isError: true);
       }
@@ -252,6 +255,9 @@ class _WeeklyScheduleScreenState extends State<WeeklyScheduleScreen> {
         setState(() {
           _allSchedules.removeWhere((item) => item.id == id);
         });
+        if (mounted && context.read<BleService>().isConnected) {
+          await _syncToEsp32();
+        }
       } else {
         _showToast('Không thể xóa lịch (${res.statusCode})', isError: true);
       }

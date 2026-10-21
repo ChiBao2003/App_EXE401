@@ -1,4 +1,5 @@
 import "dart:convert";
+import "package:flutter/material.dart";
 import "package:http/http.dart" as http;
 import "package:shared_preferences/shared_preferences.dart";
 import "../constants/app_constants.dart";
@@ -6,6 +7,7 @@ import "../constants/app_constants.dart";
 /// API Client trung tam cho tat ca HTTP calls den Backend.
 /// Tu dong gan JWT token vao header moi request.
 class ApiClient {
+  static final navigatorKey = GlobalKey<NavigatorState>();
   // Lay IP dong tu AppConstants
   static String get baseUrl => AppConstants.baseUrl;
 
@@ -26,6 +28,8 @@ class ApiClient {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove("jwt_token");
     await prefs.remove("user_id");
+    await prefs.remove("user_name");
+    await prefs.remove("user_email");
   }
 
   static Future<bool> hasToken() async {
@@ -50,36 +54,75 @@ class ApiClient {
     if (params != null && params.isNotEmpty) {
       uri = uri.replace(queryParameters: params);
     }
-    final resp = await http.get(uri, headers: await _headers(auth: auth))
+    final headers = await _headers(auth: auth);
+    final resp = await http.get(uri, headers: headers)
         .timeout(const Duration(seconds: 60));
-    return _parse(resp);
+    return _parse(resp, token: headers["Authorization"]);
   }
 
   static Future<dynamic> post(String path, Map<String, dynamic> body, {bool auth = true}) async {
     final uri = Uri.parse("$baseUrl$path");
+    final headers = await _headers(auth: auth);
     final resp = await http.post(uri,
-      headers: await _headers(auth: auth),
+      headers: headers,
       body: jsonEncode(body),
     ).timeout(const Duration(seconds: 60));
-    return _parse(resp);
+    return _parse(resp, token: headers["Authorization"]);
   }
 
   static Future<dynamic> put(String path, Map<String, dynamic> body, {bool auth = true}) async {
     final uri = Uri.parse("$baseUrl$path");
+    final headers = await _headers(auth: auth);
     final resp = await http.put(uri,
-      headers: await _headers(auth: auth),
+      headers: headers,
       body: jsonEncode(body),
     ).timeout(const Duration(seconds: 60));
-    return _parse(resp);
+    return _parse(resp, token: headers["Authorization"]);
   }
 
-  static dynamic _parse(http.Response resp) {
-    final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
+  static Future<dynamic> _parse(http.Response resp, {String? token}) async {
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(utf8.decode(resp.bodyBytes));
+    } on FormatException {
+      decoded = null;
+    }
     if (resp.statusCode >= 400) {
-      final detail = decoded["detail"] ?? "Loi khong xac dinh";
-      throw ApiException(resp.statusCode, detail.toString());
+      if (resp.statusCode == 401 && token != null &&
+          token == "Bearer ${await getToken()}") {
+        await clearToken();
+        final navigator = navigatorKey.currentState;
+        if (navigator != null) {
+          navigator.pushNamedAndRemoveUntil("/login", (route) => false);
+        }
+      }
+      throw ApiException(resp.statusCode, _errorMessage(decoded, resp.statusCode));
     }
     return decoded;
+  }
+
+  static String _errorMessage(dynamic decoded, int statusCode) {
+    final detail = decoded is Map ? decoded["detail"] : null;
+    if (detail is String && detail.trim().isNotEmpty) return detail;
+    if (statusCode == 422) {
+      if (detail is List) {
+        for (final item in detail) {
+          if (item is Map) {
+            final location = item["loc"];
+            final field = location is List && location.isNotEmpty
+                ? location.last.toString() : "";
+            if (field == "password" || field == "new_password") {
+              return "Mật khẩu phải có ít nhất 6 ký tự.";
+            }
+            if (field == "email") return "Email không hợp lệ.";
+            if (field == "display_name") return "Tên hiển thị không hợp lệ.";
+          }
+        }
+      }
+      return "Dữ liệu nhập chưa hợp lệ. Vui lòng kiểm tra lại.";
+    }
+    if (statusCode == 409) return "Email đã được đăng ký.";
+    return "Yêu cầu thất bại (mã $statusCode). Vui lòng thử lại.";
   }
 }
 

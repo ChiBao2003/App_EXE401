@@ -10,6 +10,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/bluetooth/spp_service.dart';
 import '../../core/bluetooth/alarm_config.dart';
 import '../../core/constants/app_constants.dart';
+import '../../core/api/api_client.dart';
+import '../../core/api/auth_api.dart';
 import '../../core/theme/app_colors.dart';
 
 class GeneralSettingsScreen extends StatefulWidget {
@@ -22,6 +24,7 @@ class GeneralSettingsScreen extends StatefulWidget {
 class _GeneralSettingsScreenState extends State<GeneralSettingsScreen>
     with SingleTickerProviderStateMixin {
   late Timer _clockTimer;
+  late final Future<bool> _hasTokenFuture;
   DateTime _now = DateTime.now();
   DateTime? _lastSyncTime;
 
@@ -53,6 +56,7 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen>
   @override
   void initState() {
     super.initState();
+    _hasTokenFuture = ApiClient.hasToken();
     _pulseAnim = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1400),
@@ -453,6 +457,22 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen>
 
                 // ==================== SECTION 5: SYSTEM MAINTENANCE ====================
                 _buildMaintenanceSection(spp),
+                const SizedBox(height: 24),
+                FutureBuilder<bool>(
+                  future: _hasTokenFuture,
+                  builder: (context, snapshot) => snapshot.data == true
+                      ? ListTile(
+                          leading: const Icon(Icons.password_rounded,
+                              color: AppColors.stitchPrimary),
+                          title: const Text('Đổi mật khẩu'),
+                          subtitle: const Text('Cập nhật mật khẩu tài khoản'),
+                          onTap: () => showDialog<void>(
+                            context: context,
+                            builder: (_) => const _ChangePasswordDialog(),
+                          ),
+                        )
+                      : const SizedBox.shrink(),
+                ),
                 const SizedBox(height: 36),
               ],
             ),
@@ -1759,7 +1779,7 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen>
                                 ),
                               ),
                               Text(
-                                'Synapse AI v2.5.0',
+                                'POMO SMART v2.5.0',
                                 style: GoogleFonts.outfit(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w700,
@@ -2220,4 +2240,102 @@ class _GeneralSettingsScreenState extends State<GeneralSettingsScreen>
       ],
     );
   }
+}
+
+class _ChangePasswordDialog extends StatefulWidget {
+  const _ChangePasswordDialog();
+
+  @override
+  State<_ChangePasswordDialog> createState() => _ChangePasswordDialogState();
+}
+
+class _ChangePasswordDialogState extends State<_ChangePasswordDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _old = TextEditingController();
+  final _new = TextEditingController();
+  final _confirm = TextEditingController();
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _old.dispose();
+    _new.dispose();
+    _confirm.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() { _saving = true; _error = null; });
+    try {
+      await AuthApi.changePassword(
+        oldPassword: _old.text,
+        newPassword: _new.text,
+      );
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
+      Navigator.of(context).pop();
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Đổi mật khẩu thành công.')),
+      );
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Không thể kết nối máy chủ. Vui lòng thử lại.');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Đổi mật khẩu'),
+    content: SingleChildScrollView(
+      child: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextFormField(
+              controller: _old,
+              obscureText: true,
+              decoration: const InputDecoration(labelText: 'Mật khẩu hiện tại'),
+              validator: (v) => v == null || v.isEmpty
+                  ? 'Vui lòng nhập mật khẩu hiện tại' : null,
+            ),
+            TextFormField(
+              controller: _new,
+              obscureText: true,
+              decoration: const InputDecoration(labelText: 'Mật khẩu mới'),
+              validator: (v) => v == null || v.length < 6
+                  ? 'Mật khẩu mới cần ít nhất 6 ký tự' : null,
+            ),
+            TextFormField(
+              controller: _confirm,
+              obscureText: true,
+              decoration: const InputDecoration(labelText: 'Xác nhận mật khẩu mới'),
+              validator: (v) => v != _new.text
+                  ? 'Mật khẩu xác nhận không khớp' : null,
+            ),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Text(_error!, style: const TextStyle(color: Colors.red)),
+              ),
+          ],
+        ),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: _saving ? null : () => Navigator.of(context).pop(),
+        child: const Text('Hủy'),
+      ),
+      FilledButton(
+        onPressed: _saving ? null : _save,
+        child: Text(_saving ? 'Đang lưu...' : 'Đổi mật khẩu'),
+      ),
+    ],
+  );
 }

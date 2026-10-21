@@ -410,7 +410,7 @@ class _ClockModeScreenState extends State<ClockModeScreen>
               Row(
                 children: [
                   Text(
-                    'Synapse',
+                    'POMO SMART',
                     style: GoogleFonts.outfit(
                       color: AppColors.stitchOnSurface,
                       fontWeight: FontWeight.w700,
@@ -767,7 +767,7 @@ class _ClockModeScreenState extends State<ClockModeScreen>
                                 ),
                                 const SizedBox(width: 4),
                                 Text(
-                                  'SYNAPSE STANDBY',
+                                  'POMO SMART STANDBY',
                                   style: GoogleFonts.spaceMono(
                                     fontSize: 8.5,
                                     fontWeight: FontWeight.w700,

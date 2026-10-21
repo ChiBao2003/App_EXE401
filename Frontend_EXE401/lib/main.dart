@@ -7,6 +7,7 @@ import "core/bluetooth/spp_service.dart";
 import "core/theme/app_theme.dart";
 import "core/theme/app_colors.dart";
 import "core/api/api_client.dart";
+import "core/api/auth_api.dart";
 
 import "features/home/home_screen.dart";
 import "features/general_settings/general_settings_screen.dart";
@@ -45,7 +46,7 @@ void main() async {
     ),
   );
 
-  final hasAuth = await ApiClient.hasToken();
+  final hasAuth = await AuthApi.verifySession();
   runApp(EinkClockApp(initialRoute: hasAuth ? "/" : "/login"));
 }
 
@@ -65,6 +66,7 @@ class EinkClockApp extends StatelessWidget {
         ),
       ],
       child: MaterialApp(
+        navigatorKey: ApiClient.navigatorKey,
         builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
           value: const SystemUiOverlayStyle(
             systemNavigationBarColor: AppColors.stitchSurfaceLowest,
@@ -74,7 +76,7 @@ class EinkClockApp extends StatelessWidget {
           ),
           child: child ?? const SizedBox.shrink(),
         ),
-        title: "AI Productivity Watch",
+        title: "POMO SMART",
         debugShowCheckedModeBanner: false,
         theme: AppTheme.theme,
         initialRoute: initialRoute,

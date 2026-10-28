@@ -22,6 +22,7 @@ from api.v1.ai_router import router as ai_router
 from api.v1.context_router import router as context_router
 from api.v1.usage_router import router as usage_router
 from api.v1.competition_router import router as competition_router, snapshot_competition_sessions
+from core.config import CORS_ORIGINS
 
 # ============================================================
 # Khởi tạo FastAPI App
@@ -50,7 +51,7 @@ app = FastAPI(
 # ============================================================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

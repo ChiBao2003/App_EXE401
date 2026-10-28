@@ -1,3 +1,5 @@
+import "dart:async";
+
 import "package:flutter/material.dart";
 import "package:flutter/services.dart";
 import "package:provider/provider.dart";
@@ -7,7 +9,6 @@ import "core/bluetooth/spp_service.dart";
 import "core/theme/app_theme.dart";
 import "core/theme/app_colors.dart";
 import "core/api/api_client.dart";
-import "core/api/auth_api.dart";
 
 import "features/home/home_screen.dart";
 import "features/general_settings/general_settings_screen.dart";
@@ -18,6 +19,7 @@ import "features/market/presentation/screens/market_screen.dart";
 import "features/schedule/weekly_schedule_screen.dart";
 import "features/pomodoro/pomodoro_screen.dart";
 import "features/auth/login_screen.dart";
+import "features/startup/startup_screen.dart";
 import "features/ai_hub/ai_hub_screen.dart";
 import "features/ai_hub/digital_twin_screen.dart";
 import "features/clock_mode/clock_mode_screen.dart";
@@ -31,12 +33,14 @@ import "features/competition/competition_screen.dart";
 // THI_DUA_FEATURE_END
 // ==========================================
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
+  unawaited(
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]),
+  );
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       systemNavigationBarColor: AppColors.stitchSurfaceLowest,
@@ -46,8 +50,7 @@ void main() async {
     ),
   );
 
-  final hasAuth = await AuthApi.verifySession();
-  runApp(EinkClockApp(initialRoute: hasAuth ? "/" : "/login"));
+  runApp(const EinkClockApp(initialRoute: "/startup"));
 }
 
 class EinkClockApp extends StatelessWidget {
@@ -81,6 +84,7 @@ class EinkClockApp extends StatelessWidget {
         theme: AppTheme.theme,
         initialRoute: initialRoute,
         routes: {
+          "/startup": (_) => const StartupScreen(),
           "/": (_) => const HomeScreen(),
           "/settings": (_) => const GeneralSettingsScreen(),
           "/interfaces": (_) => const InterfacesScreen(),

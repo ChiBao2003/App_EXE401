@@ -14,14 +14,28 @@ class AppConstants {
   // ============================================================
   static const String backendLanIp = String.fromEnvironment(
     'BACKEND_IP', 
-    defaultValue: '10.10.34.76'
+    defaultValue: '192.168.1.18'
   ); 
   static const int backendPort = 8000;
+
+  // ============================================================
+  // 🌐 PRODUCTION: URL backend HTTPS (VD: https://api.pomosmart.app)
+  // Build release:
+  //   flutter build appbundle --release --dart-define=BACKEND_URL=https://...
+  // Để trống => dùng cấu hình dev bên dưới (LAN / localhost).
+  // ============================================================
+  static const String backendUrl = String.fromEnvironment('BACKEND_URL');
 
   // ============================================================
   // API Base URL - Tự động chọn đúng địa chỉ theo nền tảng
   // ============================================================
   static String get baseUrl {
+    if (backendUrl.isNotEmpty) {
+      // Bỏ dấu '/' cuối để ghép endpoint không bị '//'
+      return backendUrl.endsWith('/')
+          ? backendUrl.substring(0, backendUrl.length - 1)
+          : backendUrl;
+    }
     if (kIsWeb) {
       return 'http://127.0.0.1:$backendPort'; // Web: chạy cùng máy
     }

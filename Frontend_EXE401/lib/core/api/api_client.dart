@@ -49,34 +49,44 @@ class ApiClient {
     return headers;
   }
 
-  static Future<dynamic> get(String path, {Map<String, String>? params, bool auth = true}) async {
+  static Future<dynamic> get(
+    String path, {
+    Map<String, String>? params,
+    bool auth = true,
+    Duration timeout = const Duration(seconds: 60),
+  }) async {
     var uri = Uri.parse("$baseUrl$path");
     if (params != null && params.isNotEmpty) {
       uri = uri.replace(queryParameters: params);
     }
     final headers = await _headers(auth: auth);
-    final resp = await http.get(uri, headers: headers)
+    final resp = await http.get(uri, headers: headers).timeout(timeout);
+    return _parse(resp, token: headers["Authorization"]);
+  }
+
+  static Future<dynamic> post(
+    String path,
+    Map<String, dynamic> body, {
+    bool auth = true,
+  }) async {
+    final uri = Uri.parse("$baseUrl$path");
+    final headers = await _headers(auth: auth);
+    final resp = await http
+        .post(uri, headers: headers, body: jsonEncode(body))
         .timeout(const Duration(seconds: 60));
     return _parse(resp, token: headers["Authorization"]);
   }
 
-  static Future<dynamic> post(String path, Map<String, dynamic> body, {bool auth = true}) async {
+  static Future<dynamic> put(
+    String path,
+    Map<String, dynamic> body, {
+    bool auth = true,
+  }) async {
     final uri = Uri.parse("$baseUrl$path");
     final headers = await _headers(auth: auth);
-    final resp = await http.post(uri,
-      headers: headers,
-      body: jsonEncode(body),
-    ).timeout(const Duration(seconds: 60));
-    return _parse(resp, token: headers["Authorization"]);
-  }
-
-  static Future<dynamic> put(String path, Map<String, dynamic> body, {bool auth = true}) async {
-    final uri = Uri.parse("$baseUrl$path");
-    final headers = await _headers(auth: auth);
-    final resp = await http.put(uri,
-      headers: headers,
-      body: jsonEncode(body),
-    ).timeout(const Duration(seconds: 60));
+    final resp = await http
+        .put(uri, headers: headers, body: jsonEncode(body))
+        .timeout(const Duration(seconds: 60));
     return _parse(resp, token: headers["Authorization"]);
   }
 
@@ -88,7 +98,8 @@ class ApiClient {
       decoded = null;
     }
     if (resp.statusCode >= 400) {
-      if (resp.statusCode == 401 && token != null &&
+      if (resp.statusCode == 401 &&
+          token != null &&
           token == "Bearer ${await getToken()}") {
         await clearToken();
         final navigator = navigatorKey.currentState;
@@ -96,7 +107,10 @@ class ApiClient {
           navigator.pushNamedAndRemoveUntil("/login", (route) => false);
         }
       }
-      throw ApiException(resp.statusCode, _errorMessage(decoded, resp.statusCode));
+      throw ApiException(
+        resp.statusCode,
+        _errorMessage(decoded, resp.statusCode),
+      );
     }
     return decoded;
   }
@@ -110,7 +124,8 @@ class ApiClient {
           if (item is Map) {
             final location = item["loc"];
             final field = location is List && location.isNotEmpty
-                ? location.last.toString() : "";
+                ? location.last.toString()
+                : "";
             if (field == "password" || field == "new_password") {
               return "Mật khẩu phải có ít nhất 6 ký tự.";
             }

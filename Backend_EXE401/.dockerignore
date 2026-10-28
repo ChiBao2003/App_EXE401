@@ -1,0 +1,12 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+test_*.py
+build_*.py
+seed_*.py
+generate_mock_data.py
+storage/chroma/
+.git

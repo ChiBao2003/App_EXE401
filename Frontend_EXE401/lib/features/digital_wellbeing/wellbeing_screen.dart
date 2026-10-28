@@ -1606,6 +1606,12 @@ class _WellbeingScreenState extends State<WellbeingScreen>
               color: AppColors.stitchTertiary,
               text: 'Phát hiện gián đoạn trong phiên Pomodoro',
             ),
+            _buildPrivacyItem(
+              icon: Icons.info_rounded,
+              color: AppColors.stitchSecondaryContainer,
+              text:
+                  'POMO SMART đọc tên ứng dụng, thời gian sử dụng và sự kiện chuyển ứng dụng. Bản tóm tắt hằng ngày và một số sự kiện xao nhãng (gồm tên/gói ứng dụng, thời lượng) được gửi lên máy chủ để thống kê và AI gợi ý. Bạn có thể thu hồi quyền bất cứ lúc nào trong Cài đặt hệ thống.',
+            ),
             const SizedBox(height: 12),
             _buildPrivacyItem(
               icon: Icons.cancel_rounded,
@@ -1615,7 +1621,7 @@ class _WellbeingScreenState extends State<WellbeingScreen>
             _buildPrivacyItem(
               icon: Icons.cancel_rounded,
               color: const Color(0xFFFF5252),
-              text: 'KHÔNG truy cập ảnh, video hoặc vị trí GPS',
+              text: 'Usage Access không cấp quyền đọc ảnh, video hoặc vị trí GPS',
             ),
             const SizedBox(height: 28),
             SizedBox(

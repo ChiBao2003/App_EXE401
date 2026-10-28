@@ -1,4 +1,4 @@
-﻿"""
+"""
 core/config.py - Cau hinh tap trung cho toan bo Backend
 Load tu file .env de de deploy, khong hardcode secrets.
 """
@@ -41,3 +41,18 @@ MQTT_BROKER_PORT: int = int(os.getenv("MQTT_BROKER_PORT", "1883"))
 # ============================================================
 APP_ENV: str = os.getenv("APP_ENV", "development")
 DEBUG: bool = APP_ENV == "development"
+
+# Danh sach origin cho CORS, ngan cach bang dau phay. Mac dinh "*" (dev).
+# App Android native khong bi anh huong boi CORS.
+CORS_ORIGINS: list = [
+    o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()
+]
+
+# Chan khoi dong production neu quen doi SECRET_KEY mac dinh (JWT se bi gia mao duoc)
+if APP_ENV == "production" and (
+    SECRET_KEY.startswith("CHANGE_ME") or len(SECRET_KEY) < 32
+):
+    raise RuntimeError(
+        "SECRET_KEY chua duoc cau hinh an toan cho production "
+        "(can >= 32 ky tu, khac gia tri mac dinh)."
+    )

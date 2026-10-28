@@ -63,7 +63,10 @@ class AuthApi {
   static Future<bool> verifySession() async {
     if (!await ApiClient.hasToken()) return false;
     try {
-      final result = await ApiClient.get("$_base/verify-token");
+      final result = await ApiClient.get(
+        "$_base/verify-token",
+        timeout: const Duration(seconds: 5),
+      );
       if (result is Map && result["valid"] == true) return true;
       await ApiClient.clearToken();
       return false;

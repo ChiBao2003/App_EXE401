@@ -21,7 +21,8 @@ from api.v1.auth_router import router as auth_router
 from api.v1.ai_router import router as ai_router
 from api.v1.context_router import router as context_router
 from api.v1.usage_router import router as usage_router
-from api.v1.competition_router import router as competition_router
+from api.v1.competition_router import router as competition_router, snapshot_competition_sessions
+from core.config import CORS_ORIGINS
 
 # ============================================================
 # Khởi tạo FastAPI App
@@ -50,7 +51,7 @@ app = FastAPI(
 # ============================================================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -83,6 +84,7 @@ async def _retention_loop():
     from application.ai.time_window import purge_old_data
     while True:
         try:
+            await snapshot_competition_sessions(get_database())
             deleted = await purge_old_data(get_database())
             print(f"[Retention] Da xoa du lieu > 15 ngay: {deleted}")
         except Exception as e:

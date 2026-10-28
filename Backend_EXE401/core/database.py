@@ -11,11 +11,42 @@ DATABASE_NAME = os.getenv("MONGO_DB_NAME", "Pomodoro_App")
 _client: AsyncIOMotorClient = None
 
 
+async def init_db_indexes() -> None:
+    """Tạo các index cần thiết (Sparse Unique Index) để chống ghi trùng idempotency."""
+    if not _client:
+        return
+    db = _client[DATABASE_NAME]
+    try:
+        await db["pomodoro_sessions"].create_index(
+            [("session_id", 1)],
+            unique=True,
+            sparse=True,
+            name="uniq_pomodoro_session_id"
+        )
+        await db["productivity_logs"].create_index(
+            [("session_id", 1)],
+            unique=True,
+            sparse=True,
+            name="uniq_productivity_session_id"
+        )
+        await db["users"].create_index(
+            [("email", 1)], unique=True, name="uniq_user_email"
+        )
+        await db["users"].create_index(
+            [("google_sub", 1)], unique=True, sparse=True,
+            name="uniq_google_sub"
+        )
+        print("[OK] Khoi tao MongoDB unique indexes thanh cong.")
+    except Exception as e:
+        print(f"[WARN] Khoi tao indexes (khong anh huong he thong): {e}")
+
+
 async def connect_db() -> None:
     """Khởi tạo kết nối MongoDB khi server start."""
     global _client
     _client = AsyncIOMotorClient(MONGO_URI)
-    print(f"[OK] Ket noi MongoDB thanh cong ({DATABASE_NAME})") 
+    print(f"[OK] Ket noi MongoDB thanh cong ({DATABASE_NAME})")
+    await init_db_indexes() 
 
 
 async def close_db() -> None:

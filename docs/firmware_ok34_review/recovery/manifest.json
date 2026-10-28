@@ -1,0 +1,16 @@
+{
+  "source_root": "C:\\EXE401_WEDAPP_PROJECT_REPORT\\App_EXE401\\Firmware_ESP32",
+  "target_root": "C:\\EXE401_WEDAPP_PROJECT_REPORT\\260911-122138-esp32doit-devkit-v1",
+  "files": [
+    {
+      "path": "src/Esp32Pj.ino",
+      "before_sha256": "b0912e5cf89c445d7d7d2e714985c188f0e322f171245be555e52f8ade43e2bd",
+      "after_sha256": "123bb7cf083c255e8d47b5cebfc2788552f97810876b8ad560c916d8fac880c8"
+    },
+    {
+      "path": "test/navigation_test.cpp",
+      "before_sha256": "afbfb3e1ebbd7559b4015962301bd030e4531c181a74bf535f8874870660bc5e",
+      "after_sha256": "17d6f76574c3c565c48871eba8131f6c6df932e5b6c81f68b2cd8506203b3905"
+    }
+  ]
+}

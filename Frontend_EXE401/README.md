@@ -1,16 +1,27 @@
-# React + Vite
+# POMO SMART — Flutter app
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Ứng dụng di động Pomodoro thông minh, kết nối đồng hồ POMO SMART (ESP32) qua Bluetooth LE.
 
-Currently, two official plugins are available:
+## Chạy khi phát triển
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+```powershell
+flutter pub get
+flutter run --dart-define=BACKEND_IP=192.168.1.XX
+```
 
-## React Compiler
+Backend dev chạy cổng `8000` (xem `../HUONG_DAN_CHAY.md`).
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Build phát hành (Google Play)
 
-## Expanding the Oxlint configuration
+```powershell
+flutter build appbundle --release --dart-define=BACKEND_URL=https://TEN-MIEN-BACKEND
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+Chi tiết ký ứng dụng, Google Sign-In và đăng bản lên Play Console: `../docs/PLAY_STORE_RELEASE.md`.
+
+## Cấu trúc
+
+- `lib/core/` — hằng số, mạng/API, Bluetooth, theo dõi sử dụng, xác thực
+- `lib/features/` — các màn hình theo tính năng
+- `android/app/src/main/kotlin/com/exe401/pomosmart/` — code native (Usage Stats, chọn/lưu JSON)
+- `assets/` — hình ảnh và file mẫu mặt đồng hồ

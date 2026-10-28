@@ -1,32 +1,27 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+<manifest
+    xmlns:android="http://schemas.android.com/apk/res/android"
 
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- Network - bắt buộc cho bản release (debug/profile tự thêm riêng) -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <!-- Usage Stats - Digital Wellbeing Tracking -->
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-
-    <!-- Bluetooth Classic (SPP) - flutter_bluetooth_serial -->
-    <uses-permission android:name="android.permission.BLUETOOTH"/>
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"/>
+    <!-- Bluetooth: quyền cũ chỉ cần cho Android 11 trở xuống -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30"/>
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30"/>
+    <!-- Android 12+: quét BLE không dùng để suy ra vị trí -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation"/>
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
-    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE"/>
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
-
-
-    <!-- Camera / Gallery for design feature -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28"/>
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
-
+    <!-- Android 11 trở xuống: quét BLE cần quyền vị trí -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" android:maxSdkVersion="30"/>
+    <!-- Chọn ảnh dùng Photo Picker/SAF qua image_picker, không cần quyền đọc bộ nhớ -->
     <!-- BLE feature declaration -->
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true"/>
-
     <application
-        android:label="Eink Clock"
+        android:label="POMO SMART"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

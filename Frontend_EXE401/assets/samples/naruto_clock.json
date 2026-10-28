@@ -1,0 +1,115 @@
+{
+  "title": "Naruto Uzumaki Edition",
+  "style": "color_rgb565",
+  "background": 64800,
+  "elements": [
+    {
+      "t": "geometry",
+      "x": 5,
+      "y": 5,
+      "w": 310,
+      "h": 230,
+      "c": 0,
+      "v": "",
+      "s": 1,
+      "g": "rect",
+      "f": false
+    },
+    {
+      "t": "geometry",
+      "x": 9,
+      "y": 9,
+      "w": 302,
+      "h": 222,
+      "c": 0,
+      "v": "",
+      "s": 1,
+      "g": "rect",
+      "f": false
+    },
+    {
+      "t": "text",
+      "x": 18,
+      "y": 18,
+      "w": 270,
+      "h": 12,
+      "c": 0,
+      "v": "NARUTO #001 UZUMAKI #007",
+      "s": 1
+    },
+    {
+      "t": "geometry",
+      "x": 14,
+      "y": 38,
+      "w": 205,
+      "h": 86,
+      "c": 0,
+      "v": "",
+      "s": 1,
+      "g": "rect",
+      "f": false
+    },
+    {
+      "t": "clock",
+      "x": 20,
+      "y": 56,
+      "w": 185,
+      "h": 45,
+      "c": 0,
+      "v": "@T",
+      "s": 5
+    },
+    {
+      "t": "calendar",
+      "x": 20,
+      "y": 111,
+      "w": 180,
+      "h": 16,
+      "c": 0,
+      "v": "@d/@M/@y",
+      "s": 2
+    },
+    {
+      "t": "geometry",
+      "x": 14,
+      "y": 143,
+      "w": 205,
+      "h": 1,
+      "c": 0,
+      "v": "",
+      "s": 1,
+      "g": "rect",
+      "f": true
+    },
+    {
+      "t": "text",
+      "x": 18,
+      "y": 155,
+      "w": 204,
+      "h": 20,
+      "c": 0,
+      "v": "LV. 70 CHAKRA 150/150",
+      "s": 1
+    },
+    {
+      "t": "text",
+      "x": 18,
+      "y": 183,
+      "w": 190,
+      "h": 12,
+      "c": 0,
+      "v": "BAT 98% 28C",
+      "s": 1
+    },
+    {
+      "t": "bitmap",
+      "x": 254,
+      "y": 82,
+      "w": 48,
+      "h": 64,
+      "c": 0,
+      "v": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000003cf1e1e3c0003cf1e1e3c0001e78f0f1e0001e78f0f1e0001e78f0f1e0000f3c7878f0000f3cfff8f0000f3dfff8f000079ffffc7800079ffffc7800079ffffc780003dffffe3c0003dffffe3c00007fffffc000003ffffe0000003ffffe0000003ffffe0000003ffffe0000007fffff0000003ffffe0000003e7f3e0000003e7f3e000003fffffff000003ffffe0000001ffffc0000001ffffc000003fffffff0000007c1f000000007fff000000001ffc0000003fcff9ff0000000080000000000000000000000080000000001ffc000000007fff00000000ffff80000003ffffe0000003ffffe0000007fffff000000ffffff800000ffffff800000ffffff800000ffffff800001ffffffc00000ffffff800000ffffff800000ffffff800000ffffff8000007fffff0000003ffffe0000003ffffe0000000ffff80000000ffffc0000001dffce000000380807000000700003800",
+      "s": 1
+    }
+  ]
+}

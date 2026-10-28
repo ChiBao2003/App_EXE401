@@ -1,17 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'package:http/http.dart' as http;
-import '../../core/constants/app_constants.dart';
-import 'dart:convert';
-import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart' show kIsWeb;
-import '../../core/theme/app_colors.dart';
+import '../general_settings/general_settings_screen.dart';
 
+/// InfoScreen — Đã hợp nhất vào GeneralSettingsScreen theo thiết kế Google Stitch Screen 10:
+/// "General Settings & Firmware OTA" (Design System: Aether Synapse).
 class InfoScreen extends StatelessWidget {
   const InfoScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+<<<<<<< HEAD
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -474,3 +471,8 @@ class _FirmwareUpdateCardState extends State<_FirmwareUpdateCard> {
   }
 }
 
+=======
+    return const GeneralSettingsScreen();
+  }
+}
+>>>>>>> thang

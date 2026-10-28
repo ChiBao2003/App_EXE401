@@ -1,0 +1,115 @@
+{
+  "title": "Jujutsu Kaisen - Gojo Satoru",
+  "style": "color_rgb565",
+  "background": 4265,
+  "elements": [
+    {
+      "t": "geometry",
+      "x": 5,
+      "y": 5,
+      "w": 310,
+      "h": 230,
+      "c": 65535,
+      "v": "",
+      "s": 1,
+      "g": "roundrect",
+      "f": false
+    },
+    {
+      "t": "geometry",
+      "x": 9,
+      "y": 9,
+      "w": 302,
+      "h": 222,
+      "c": 65535,
+      "v": "",
+      "s": 1,
+      "g": "roundrect",
+      "f": false
+    },
+    {
+      "t": "text",
+      "x": 18,
+      "y": 18,
+      "w": 270,
+      "h": 12,
+      "c": 65535,
+      "v": "GOJO SATORU #001",
+      "s": 1
+    },
+    {
+      "t": "geometry",
+      "x": 14,
+      "y": 38,
+      "w": 205,
+      "h": 86,
+      "c": 65535,
+      "v": "",
+      "s": 1,
+      "g": "roundrect",
+      "f": false
+    },
+    {
+      "t": "clock",
+      "x": 20,
+      "y": 56,
+      "w": 185,
+      "h": 45,
+      "c": 65535,
+      "v": "@T",
+      "s": 5
+    },
+    {
+      "t": "calendar",
+      "x": 20,
+      "y": 111,
+      "w": 180,
+      "h": 16,
+      "c": 65535,
+      "v": "@d/@M/@y",
+      "s": 2
+    },
+    {
+      "t": "geometry",
+      "x": 14,
+      "y": 143,
+      "w": 205,
+      "h": 1,
+      "c": 65535,
+      "v": "",
+      "s": 1,
+      "g": "rect",
+      "f": true
+    },
+    {
+      "t": "text",
+      "x": 18,
+      "y": 155,
+      "w": 204,
+      "h": 20,
+      "c": 65535,
+      "v": "GRADE: SPECIAL CHAO 99%",
+      "s": 1
+    },
+    {
+      "t": "text",
+      "x": 18,
+      "y": 183,
+      "w": 190,
+      "h": 12,
+      "c": 65535,
+      "v": "BAT 98% 28C",
+      "s": 1
+    },
+    {
+      "t": "bitmap",
+      "x": 254,
+      "y": 82,
+      "w": 48,
+      "h": 64,
+      "c": 65535,
+      "v": "00000000000000000000000000000000000001e3ffc7f80001e3ffc7f80000f3dfe7bc0000f1ffe3fc0000f1ffe3fc000079fef3fc000079eff3de00003cfff3de00003cff79fe00003cf7f9ef00001efffdef00001efffdef00001e7fffff00000f7ffff780000ffffff7800001ffffc0000001ffffc0000003ffffe0000003ffffe0000003ffffe0000007fffff0000007fffff0000007fffff0000007fffff0000007fffff0000007fffff0000003ffffe0000003ffffe0000001ffffc0000001ffffc0000000ffff800000007c1f000000007fff000000001ffc000000000ff8000300000080000600000000000c00000080001800001ffc001800007fff00300000ffff80600003ffffe0c00003ffffe1800007fffff300000ffffffe00000ffffffe00000ffffffc00000ffffff800001ffffffc00000ffffff800000ffffff800000ffffff800000ffffff8000007fffff0000003ffffe0000003ffffe0000000ffff80000000ffffc0000001dffce000000380807000000700003800",
+      "s": 1
+    }
+  ]
+}

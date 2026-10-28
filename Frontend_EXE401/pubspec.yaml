@@ -1,5 +1,5 @@
 name: eink_clock
-description: "Ứng dụng điều khiển đồng hồ Eink Clock qua Bluetooth BLE"
+description: "Ứng dụng POMO SMART - Đồng hồ thông minh Pomodoro IoT"
 publish_to: 'none'
 
 version: 1.0.0+1
@@ -16,7 +16,10 @@ dependencies:
   provider: ^6.1.2
   go_router: ^14.6.3
   shared_preferences: ^2.3.5
+  path_provider: ^2.1.6
   google_fonts: ^6.2.1
+  google_sign_in: ^7.2.0
+  google_sign_in_web: ^1.1.3
   image_picker: ^1.1.2
   permission_handler: ^11.4.0
   intl: ^0.20.2
@@ -37,3 +40,4 @@ flutter:
 
   assets:
     - assets/images/
+    - assets/samples/

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+export 'digital_twin_screen.dart';
 
 class DigitalTwinDashboard extends StatelessWidget {
   final double focusScore;
@@ -38,26 +39,43 @@ class DigitalTwinDashboard extends StatelessWidget {
                   radarShape: RadarShape.polygon,
                   borderData: FlBorderData(show: false),
                   titlePositionPercentageOffset: 0.2,
-                  radarBorderData: const BorderSide(color: Colors.blueAccent, width: 2),
-                  tickBorderData: const BorderSide(color: Colors.grey, width: 1),
-                  gridBorderData: const BorderSide(color: Colors.grey, width: 0.5),
+                  radarBorderData: const BorderSide(
+                    color: Colors.blueAccent,
+                    width: 2,
+                  ),
+                  tickBorderData: const BorderSide(
+                    color: Colors.grey,
+                    width: 1,
+                  ),
+                  gridBorderData: const BorderSide(
+                    color: Colors.grey,
+                    width: 0.5,
+                  ),
                   getTitle: (index, angle) {
                     switch (index) {
                       case 0:
-                        return RadarChartTitle(text: 'Focus\n${focusScore.toInt()}');
+                        return RadarChartTitle(
+                          text: 'Focus\n${focusScore.toInt()}',
+                        );
                       case 1:
-                        return RadarChartTitle(text: 'Stress\n${stressLevel.toInt()}');
+                        return RadarChartTitle(
+                          text: 'Stress\n${stressLevel.toInt()}',
+                        );
                       case 2:
-                        return RadarChartTitle(text: 'Break\n${breakScore.toInt()}');
+                        return RadarChartTitle(
+                          text: 'Break\n${breakScore.toInt()}',
+                        );
                       case 3:
-                        return RadarChartTitle(text: 'Efficiency\n${efficiency.toInt()}');
+                        return RadarChartTitle(
+                          text: 'Efficiency\n${efficiency.toInt()}',
+                        );
                       default:
                         return const RadarChartTitle(text: '');
                     }
                   },
                   dataSets: [
                     RadarDataSet(
-                      fillColor: Colors.blue.withOpacity(0.3),
+                      fillColor: Colors.blue.withValues(alpha: 0.3),
                       borderColor: Colors.blue,
                       entryRadius: 3,
                       dataEntries: [
@@ -66,7 +84,7 @@ class DigitalTwinDashboard extends StatelessWidget {
                         RadarEntry(value: breakScore),
                         RadarEntry(value: efficiency),
                       ],
-                    )
+                    ),
                   ],
                 ),
               ),
@@ -75,14 +93,16 @@ class DigitalTwinDashboard extends StatelessWidget {
             LinearProgressIndicator(
               value: burnoutRisk / 100,
               backgroundColor: Colors.green.shade100,
-              color: burnoutRisk > 60 ? Colors.red : (burnoutRisk > 40 ? Colors.orange : Colors.green),
+              color: burnoutRisk > 60
+                  ? Colors.red
+                  : (burnoutRisk > 40 ? Colors.orange : Colors.green),
               minHeight: 8,
             ),
             const SizedBox(height: 6),
             Text(
               'Burnout Risk: ${burnoutRisk.toInt()}% (${burnoutRisk > 60 ? 'HIGH' : 'NORMAL'})',
               style: const TextStyle(fontWeight: FontWeight.w600),
-            )
+            ),
           ],
         ),
       ),

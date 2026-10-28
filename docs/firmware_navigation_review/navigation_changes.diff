@@ -1,0 +1,1501 @@
+--- a/src/Esp32Pj.ino
++++ b/src/Esp32Pj.ino
+@@ -86,13 +86,16 @@
+ const int TS_LEFT = 920, TS_RT = 150, TS_TOP = 940, TS_BOT = 120;
+ TouchScreen ts = TouchScreen(XP, YP, XM, YM, 300);
+ bool touchEnabled = true;
++PressLatch touchLatch(80,150);
+ 
+ // Cấu hình chân Nút bấm 
+-#define BTN_MODE    36
+-#define BTN_ACTION1 34
+-#define BTN_ACTION2 35
+-
+-// Hardware test mapping: NEXT=36, OK=34, BACK=35. External pull-ups required.
++#define BTN_MODE    BUTTON_MODE_PIN
++#define BTN_ACTION1 BUTTON_OK_PIN
++#define BTN_ACTION2 BUTTON_SELECT_PIN
++
++// MODE=36, OK=34, SELECT=35. External pull-ups required.
++int controlFocus=0;
++int focusByScreen[6]={-1,3,2,0,0,0};
+ 
+ // I2S wiring verified by the working hardware test: BCLK=5, DIN=19, LRC=18.
+ #define I2S_BCLK 5
+@@ -101,7 +104,6 @@
+ 
+ // Còi báo Buzzer (Chốt GPIO 23, KHUYÊN DÙNG: Nối tiếp trở 220 Ohm)
+ #define BUZZER_PIN 23
+-// Muc PWM an toan cho GPIO 23 (~12.5% duty cycle giup giam dong qua tai ma van du am luong)
+ // PWM duty and channel are configured in io_service.cpp.
+ 
+ // Bảng màu giao diện
+@@ -163,6 +165,7 @@
+ int pomoInitialTime = pomoWorkDuration;
+ bool pomoRunning    = false;
+ unsigned long pomoLastTick = 0;
++uint32_t pomoRemainderMs = 0;
+ int lastPomoDraw = -2;
+ int lastPomoSessionDraw = -2;
+ PomoPhase lastPomoPhaseDraw = PHASE_WORK;
+@@ -192,6 +195,7 @@
+ bool timerRunning   = false;
+ bool timerFinished  = false;
+ unsigned long timerLastTick = 0;
++uint32_t timerRemainderMs = 0;
+ int lastTimerDraw = -2;
+ 
+ // ==========================================
+@@ -385,7 +389,8 @@
+ 
+ void setup() {
+   Serial.begin(115200);
+-  if (!beginIoService()) Serial.println("[IO] ERROR: input/buzzer service not started");
++  Serial.printf("[BUILD] NAV_MODE36_SELECT35_OK34 | %s %s\n",__DATE__,__TIME__);
++  Serial.printf("[BUILD] Source: %s\n",__FILE__);
+   analogReadResolution(10);
+ 
+   // Khoi tao Preferences NVS de luu tru ben vung
+@@ -518,7 +523,7 @@
+   pinMode(BTN_MODE, INPUT);
+   pinMode(BTN_ACTION1, INPUT);
+   pinMode(BTN_ACTION2, INPUT);
+-  Serial.printf("[INPUT] Idle raw NEXT36=%d OK34=%d BACK35=%d (released=1; external pull-ups required)\n",
++  Serial.printf("[INPUT] Idle raw MODE36=%d OK34=%d SELECT35=%d (released=1; external pull-ups required)\n",
+                 digitalRead(BTN_MODE), digitalRead(BTN_ACTION1), digitalRead(BTN_ACTION2));
+ 
+   // Khoi dong WiFi + MQTT (chi khi bat ENABLE_WIFI_MQTT)
+@@ -527,6 +532,8 @@
+   #ifdef ENABLE_WIFI_MQTT
+     setupWifiMQTT();
+   #endif
++  // Start accepting contacts only once the UI and peripherals are ready.
++  if (!beginIoService()) Serial.println("[IO] ERROR: input/buzzer service not started");
+ }
+ 
+ // ==========================================
+@@ -634,6 +641,8 @@
+   } else if (strcmp(cmd, "SET_THEME") == 0) {
+     currentThemeId = params["theme_id"] | 0;
+     if (currentThemeId < 0 || currentThemeId > 2) currentThemeId = 0;
++    focusByScreen[0] = currentThemeId;
++    if (currentState == MODE_CLOCK) syncControlFocus();
+     prefs.putInt("theme", currentThemeId);
+     Serial.print("[BLE] SET_THEME id="); Serial.println(currentThemeId);
+ 
+@@ -688,7 +697,7 @@
+ void processSerialCommand(String sCmd) {
+     sCmd.trim();
+     if (sCmd == "INPUTS") {
+-      Serial.printf("[INPUT] NEXT36=%d OK34=%d BACK35=%d touch=%d mode=%d\n",
++      Serial.printf("[INPUT] MODE36=%d OK34=%d SELECT35=%d touch=%d mode=%d\n",
+                     digitalRead(BTN_MODE), digitalRead(BTN_ACTION1), digitalRead(BTN_ACTION2),
+                     touchEnabled, (int)currentState);
+     } else if (sCmd == "BEEP") {
+@@ -722,13 +731,17 @@
+ void loop() {
+   serviceSerialInput();
+ 
++  updateBackgroundTimers();
+   handleBuzzer(); // Xu ly coi da luong, khong block
+   handleButtons();
+   handleTouch();
+   handleBLECommands();
+ 
+   // Kiem tra chuong bao thuc theo thoi gian thuc tu RTC DS3231 (chi khi RTC hop le va da xac thuc)
+-  if (rtcFound && alarmEnabled && alarmHour >= 0 && alarmMinute >= 0) {
++  static uint32_t lastAlarmPoll = 0;
++  if (rtcFound && alarmEnabled && alarmHour >= 0 && alarmMinute >= 0 &&
++      uint32_t(millis() - lastAlarmPoll) >= 250) {
++    lastAlarmPoll = millis();
+     DateTime now = rtc.now();
+     if (now.isValid() && !rtc.lostPower()) {
+       if (now.hour() == alarmHour && now.minute() == alarmMinute) {
+@@ -764,24 +777,31 @@
+     processPomodoroQueue();
+   }
+ 
+-  switch (currentState) {
+-    case MODE_CLOCK:     runClockMode();     break;
+-    case MODE_POMODORO:  runPomodoroMode();  break;
+-    case MODE_TIMER:     runTimerMode();     break;
+-    case MODE_BLUETOOTH: runBluetoothMode(); break;
++  if (!notifActive) {
++    syncControlFocus();
++    const bool repaintControls=stateChanged;
++    switch (currentState) {
++      case MODE_CLOCK:     runClockMode();     break;
++      case MODE_POMODORO:  runPomodoroMode();  break;
++      case MODE_TIMER:     runTimerMode();     break;
++      case MODE_BLUETOOTH: runBluetoothMode(); break;
++    }
++    drawControlFocus(repaintControls);
++    if (repaintControls) drawNavigationHelp();
+   }
+ 
+   // MQTT: Publish trang thai Pomodoro moi 10 giay
+   #ifdef ENABLE_WIFI_MQTT
+     loopMQTT();
+     static unsigned long lastPomoPublish = 0;
+-    if (currentState == MODE_POMODORO && millis() - lastPomoPublish > 10000) {
++    if ((pomoRunning || currentState == MODE_POMODORO) && millis() - lastPomoPublish > 10000) {
+       lastPomoPublish = millis();
+       const char* phaseStr = (pomoPhase == PHASE_WORK) ? "work" :
+                              (pomoPhase == PHASE_BREAK) ? "break" : "long_break";
+       publishPomodoroState(true, pomoTime, phaseStr);
+     }
+   #endif
++  delay(1); // Yield to Bluetooth and the independent input/buzzer task.
+ }
+ 
+ // ==========================================
+@@ -796,238 +816,315 @@
+ void handleBuzzer() { /* Timing is handled independently of display drawing. */ }
+ 
+ // ==========================================
++// Focus is stored separately for Clock, task grid, Pomodoro controls,
++// preset grid, Timer controls and Bluetooth controls.
++int currentControlScreen() {
++  if (currentState==MODE_CLOCK) return 0;
++  if (currentState==MODE_POMODORO) return pomoSelectingTask?1:2;
++  if (currentState==MODE_TIMER) return timerSelecting?3:4;
++  return 5;
++}
++
++int currentControlCount() {
++  const int screen=currentControlScreen();
++  if (screen==0) return 3;
++  if (screen==1) return NUM_TASK_TYPES;
++  if (screen==2) return 4;
++  if (screen==3) return NUM_PRESETS;
++  if (screen==4) return 2;
++  return isBluetoothConnected?3:0;
++}
++
++void syncControlFocus() {
++  const int screen=currentControlScreen(), count=currentControlCount();
++  if (count==0) { controlFocus=-1; return; }
++  int& saved=focusByScreen[screen];
++  if (saved<0 || saved>=count) saved=screen==0?currentThemeId:0;
++  controlFocus=saved;
++}
++
++void setControlFocus(int index) {
++  const int count=currentControlCount();
++  if (index<0 || index>=count) return;
++  focusByScreen[currentControlScreen()]=index;
++  controlFocus=index;
++}
++
++bool dismissInputAlert() {
++  if (!isAlarmActive && !notifActive) return false;
++  isAlarmActive=false;
++  notifActive=false;
++  stopBuzzer();
++  discardKeyEvents();
++  stateChanged=true;
++  return true;
++}
++
++void activateFocusedControl() {
++  syncControlFocus();
++  if (controlFocus<0) return;
++  const uint32_t now=millis();
++  if (currentState==MODE_CLOCK) {
++    if (currentThemeId==controlFocus) return;
++    currentThemeId=controlFocus;
++    prefs.putInt("theme",currentThemeId);
++    lastMinute=-1;
++    stateChanged=true;
++  } else if (currentState==MODE_POMODORO && pomoSelectingTask) {
++    selectedTaskTypeIndex=controlFocus;
++    current_pomo_task_type=taskTypeLabels[selectedTaskTypeIndex];
++    pomoSelectingTask=false;
++    focusByScreen[2]=2; // A newly confirmed task starts at START/PAUSE.
++    stateChanged=true;
++  } else if (currentState==MODE_TIMER && timerSelecting) {
++    selectedTimerPreset=controlFocus;
++    timerInitial=timerSeconds=timerPresets[selectedTimerPreset];
++    timerSelecting=false;
++    timerRunning=true;
++    timerFinished=false;
++    timerLastTick=now;
++    timerRemainderMs=0;
++    lastTimerDraw=-2;
++    focusByScreen[4]=0;
++    stateChanged=true;
++  } else if (currentState==MODE_POMODORO) {
++    if (controlFocus==3) { resetPomodoro(); return; }
++    if (controlFocus<2) {
++      pomoWorkDuration=constrain(pomoWorkDuration+(controlFocus==0?300:-300),300,5400);
++      if (!pomoRunning && pomoPhase==PHASE_WORK) {
++        pomoTime=pomoInitialTime=pomoWorkDuration;
++        pomoRemainderMs=0;
++        lastPomoDraw=-2;
++      }
++      return;
++    }
++    if (pomoRunning) {
++      ++pauseCount;
++      pomoRemainderMs=uint32_t(now-pomoLastTick);
++      pomoRunning=false;
++    } else {
++      pomoLastTick=now-pomoRemainderMs;
++      pomoRunning=true;
++    }
++    if (pomoRunning && pomoStartTimeStr[0]=='\0') {
++      if (rtcFound && !rtc.lostPower()) {
++        DateTime n=rtc.now();
++        snprintf(pomoStartTimeStr,sizeof(pomoStartTimeStr),"%04d-%02d-%02dT%02d:%02d:%02d",
++                 n.year(),n.month(),n.day(),n.hour(),n.minute(),n.second());
++      } else {
++        snprintf(pomoStartTimeStr,sizeof(pomoStartTimeStr),"2026-01-01T00:00:00");
++      }
++    }
++    if (!stateChanged) drawPomodoroStartPauseButton(pomoRunning);
++  } else if (currentState==MODE_TIMER) {
++    if (controlFocus==1) { resetTimerToSelection(); return; }
++    if (timerFinished) return;
++    if (timerRunning) {
++      timerRemainderMs=uint32_t(now-timerLastTick);
++      timerRunning=false;
++    } else {
++      timerLastTick=now-timerRemainderMs;
++      timerRunning=true;
++    }
++    if (!stateChanged) drawTimerStartPauseButton(timerRunning);
++  } else if (currentState==MODE_BLUETOOTH && isBluetoothConnected) {
++    if (controlFocus==0) a2dp_sink.previous();
++    else if (controlFocus==1) a2dp_sink.play();
++    else a2dp_sink.next();
++  }
++  syncControlFocus();
++}
++
++// Both touch navigation and the GPIO service enter through this dispatcher.
++void handleNavigationEvent(KeyEvent event) {
++  if (event==KeyEvent::None) return;
++  updateBackgroundTimers();
++  syncControlFocus();
++  lastBtnPress=millis();
++  if (dismissInputAlert()) return; // First press only dismisses, including MODE.
++  if (event==KeyEvent::Mode) {
++    startBeep(1,40,2200);
++    currentState=(AppState)((currentState+1)%NUM_MODES);
++    syncControlFocus();
++    stateChanged=true;
++  } else if (event==KeyEvent::Select) {
++    const int count=currentControlCount();
++    if (count==0) return;
++    startBeep(1,40,2200);
++    setControlFocus((controlFocus+1)%count);
++  } else if (event==KeyEvent::Ok) {
++    if (currentControlCount()==0) return;
++    startBeep(1,40,2200);
++    activateFocusedControl();
++  }
++}
++
+ void handleButtons() {
+-  bool currentBTStatus = a2dp_sink.is_connected();
+-  if (currentBTStatus != isBluetoothConnected) {
+-    isBluetoothConnected = currentBTStatus;
+-    if (currentState == MODE_BLUETOOTH) stateChanged = true;
+-  }
+-
++  const bool connected=a2dp_sink.is_connected();
++  if (connected!=isBluetoothConnected) {
++    isBluetoothConnected=connected;
++    if (currentState==MODE_BLUETOOTH) stateChanged=true;
++  }
++  syncControlFocus();
+   KeyEvent event;
+   if (!readKeyEvent(event)) return;
+-  const uint32_t now=millis();
+-  Serial.printf("[INPUT] key=%d raw(NEXT36,OK34,BACK35)=0x%X mode=%d\n",
+-                (int)event, rawButtonLevels(), (int)currentState);
+-  lastBtnPress=now;
+-  if (isAlarmActive || notifActive) {
+-    isAlarmActive=false; notifActive=false;
+-    stopBuzzer(); stateChanged=true;
++  touchLatch.suppressUntilRelease(millis());
++  Serial.printf("[INPUT] key=%d raw(MODE36,OK34,SELECT35)=0x%X mode=%d\n",
++                int(event),rawButtonLevels(),int(currentState));
++  handleNavigationEvent(event);
++}
++
++void drawNavigationHelp() {
++  tft.fillRect(0,230,320,10,C_BLACK);
++  tft.setTextSize(1);
++  tft.setTextColor(C_WHITE,C_BLACK);
++  tft.setCursor(4,231);
++  tft.print("MODE: MAN HINH | SELECT: DI CHUYEN | OK: CHON");
++}
++
++// Focus drawing never changes session state or activates a control.
++void drawControlFocus(bool force) {
++  static int previousScreen=-1, previousFocus=-1;
++  const int screen=currentControlScreen();
++  if (screen!=previousScreen) force=true;
++  if (!force && previousFocus==controlFocus) return;
++  if (screen==0) {
++    const int y=currentThemeId==0?216:currentThemeId==1?0:210;
++    const uint16_t bg=currentThemeId==0?0x0841:currentThemeId==1?C_BLACK:0x2008;
++    tft.fillRect(0,y,320,12,bg);
++    tft.setTextSize(1); tft.setTextColor(C_CYAN,bg);
++    tft.setCursor(4,y+2); tft.print("THEME FOCUS: "); tft.print(controlFocus+1);
++    tft.print(" | ACTIVE: "); tft.print(currentThemeId+1);
++  } else if (screen==1 || screen==3) {
++    if (force) {
++      // Full-screen builders draw the grid and its current focus.
++      updateSelectionOutline(screen==1,controlFocus,controlFocus);
++    } else {
++      updateSelectionOutline(screen==1,previousFocus,controlFocus);
++    }
++  } else if (screen==2) {
++    const int y[4]={15,70,130,190}, h[4]={45,45,50,36};
++    for (int i=0;i<4;++i)
++      if (force || i==previousFocus || i==controlFocus)
++        tft.drawRoundRect(218,y[i]-2,94,h[i]+4,7,i==controlFocus?C_WHITE:C_BLACK);
++  } else if (screen==4) {
++    for (int i=0;i<2;++i)
++      tft.drawRoundRect(18+150*i,153,134,59,7,i==controlFocus?C_WHITE:C_BLACK);
++  } else if (screen==5 && isBluetoothConnected) {
++    for (int i=0;i<3;++i)
++      tft.drawRoundRect(13+105*i,153,84,54,6,i==controlFocus?C_CYAN:C_GREEN);
++  }
++  previousScreen=screen; previousFocus=controlFocus;
++}
++
++// Touch hit testing selects an index, then invokes the very same OK action.
++void handleTouchAt(int x,int y) {
++  updateBackgroundTimers();
++  syncControlFocus();
++  if (dismissInputAlert()) { lastBtnPress=millis(); return; }
++  if (y>=230) {
++    handleNavigationEvent(x<100?KeyEvent::Mode:x<214?KeyEvent::Select:KeyEvent::Ok);
+     return;
+   }
+-  if (event==KeyEvent::BackLong) {
+-    if (currentState==MODE_POMODORO) resetPomodoro();
+-    if (currentState==MODE_TIMER) resetTimerToSelection();
+-    currentState=MODE_CLOCK;
+-    stateChanged=true;
+-    startBeep(1,60,2000);
+-    return;
+-  }
+-  startBeep(1,40,2200);
+-  if (event==KeyEvent::Next) {
+-    if (currentState==MODE_POMODORO && pomoSelectingTask) {
+-      selectedTaskTypeIndex=(selectedTaskTypeIndex+1)%NUM_TASK_TYPES;
+-    } else if (currentState==MODE_TIMER && timerSelecting) {
+-      selectedTimerPreset=(selectedTimerPreset+1)%NUM_PRESETS;
+-    } else {
+-      currentState=(AppState)((currentState+1)%NUM_MODES);
+-      Serial.printf("[MODE] NEXT -> %d\n",(int)currentState);
+-    }
+-    stateChanged=true;
+-  } else if (event==KeyEvent::Ok) {
+-    if (currentState==MODE_CLOCK) {
+-      currentThemeId=(currentThemeId+1)%3;
+-      prefs.putInt("theme",currentThemeId);
+-      lastMinute=-1;
+-      stateChanged=true;
+-    } else if (currentState==MODE_POMODORO && pomoSelectingTask) {
+-      current_pomo_task_type=taskTypeLabels[selectedTaskTypeIndex];
+-      pomoSelectingTask=false;
+-      stateChanged=true;
+-    } else if (currentState==MODE_TIMER && timerSelecting) {
+-      timerInitial=timerSeconds=timerPresets[selectedTimerPreset];
+-      timerSelecting=false; timerRunning=true; timerFinished=false;
+-      timerLastTick=now; lastTimerDraw=-2; stateChanged=true;
+-    } else if (currentState==MODE_POMODORO) {
+-        if (pomoRunning) pauseCount++; // Đếm số lần bấm PAUSE (trước khi toggle)
+-        pomoRunning = !pomoRunning;
+-        // Ghi thời gian bắt đầu từ RTC khi START lần đầu
+-        if (pomoRunning && pomoStartTimeStr[0] == '\0') {
+-          if (rtcFound && !rtc.lostPower()) {
+-            DateTime n = rtc.now();
+-            snprintf(pomoStartTimeStr, sizeof(pomoStartTimeStr),
+-              "%04d-%02d-%02dT%02d:%02d:%02d",
+-              n.year(), n.month(), n.day(), n.hour(), n.minute(), n.second());
+-          } else {
+-            snprintf(pomoStartTimeStr, sizeof(pomoStartTimeStr), "2026-01-01T00:00:00");
+-          }
+-        }
+-        startBeep(1, 100, 3500); 
+-        drawPomodoroStartPauseButton(pomoRunning);
+-    } else if (currentState==MODE_TIMER && !timerFinished) {
+-      timerRunning=!timerRunning;
+-      timerLastTick=now;
+-      drawTimerStartPauseButton(timerRunning);
+-    } else if (currentState==MODE_BLUETOOTH && isBluetoothConnected) {
+-      a2dp_sink.play();
+-    }
+-  } else if (event==KeyEvent::Back) {
+-    if (currentState==MODE_POMODORO && !pomoSelectingTask) resetPomodoro();
+-    else if (currentState==MODE_TIMER && !timerSelecting) resetTimerToSelection();
+-    else {
+-      currentState=MODE_CLOCK;
+-      stateChanged=true;
+-    }
+-  }
+-}
+-
+-// ==========================================
+-// HÀM ĐIỀU KHIỂN CẢM ỨNG
+-// ==========================================
++  if (currentState==MODE_CLOCK) {
++    const int chooserY=currentThemeId==0?216:currentThemeId==1?0:210;
++    if (y>=chooserY && y<chooserY+12) {
++      handleNavigationEvent(x<160?KeyEvent::Select:KeyEvent::Ok);
++      return;
++    }
++  }
++  // Preserve the existing header touch shortcut for changing screen.
++  if (x<150 && y<40) { handleNavigationEvent(KeyEvent::Mode); return; }
++  int hit=-1;
++  const int screen=currentControlScreen();
++  if (screen==1 || screen==3) {
++    const bool task=screen==1;
++    const int cols=task?2:4, bw=task?145:70, bh=task?85:75;
++    const int gap=task?10:8, sx=task?10:8, sy=task?50:45;
++    for (int i=0;i<currentControlCount();++i) {
++      const int left=sx+(i%cols)*(bw+gap), top=sy+(i/cols)*(bh+gap);
++      if (x>=left && x<left+bw && y>=top && y<top+bh) { hit=i; break; }
++    }
++  } else if (screen==2 && x>=220 && x<310) {
++    const int top[4]={15,70,130,190}, height[4]={45,45,50,36};
++    for (int i=0;i<4;++i) if (y>=top[i] && y<top[i]+height[i]) hit=i;
++  } else if (screen==4 && y>=155 && y<210) {
++    if (x>=20 && x<150) hit=0;
++    else if (x>=170 && x<300) hit=1;
++  } else if (screen==5 && isBluetoothConnected && y>=155 && y<205) {
++    for (int i=0;i<3;++i) if (x>=15+105*i && x<95+105*i) hit=i;
++  }
++  if (hit<0) return;
++  setControlFocus(hit);
++  handleNavigationEvent(KeyEvent::Ok);
++}
++
+ void handleTouch() {
+   if (!touchEnabled) return;
+-  // Isolate the LCD before touching its shared WR/RS/data pins.
+-  digitalWrite(33, HIGH); // LCD_CS inactive
+-  digitalWrite(2, HIGH);  // LCD_RD inactive
+-  TSPoint p = ts.getPoint();
+-  // PHUC HOI TOAN BO 4 CHAN DIEU KHIEN VA DATA CUA TFT LCD (Khac phuc xung dot bus)
+-  digitalWrite(YP, HIGH); // Preload WR before enabling output.
+-  pinMode(YP, OUTPUT);
+-  digitalWrite(XM, HIGH);
+-  pinMode(XM, OUTPUT);
+-  pinMode(XP, OUTPUT);
+-  pinMode(YM, OUTPUT);
+-
+-  // Reject brief pressure/ADC noise. One event per contact; release to rearm.
+-  static PressLatch touchLatch(80, 150);
+-  static int16_t previousX = 0, previousY = 0;
+-  static uint8_t stableSamples = 0;
+-  int16_t touchX = map(p.y, TS_LEFT, TS_RT, 0, 320);
+-  int16_t touchY = map(p.x, TS_TOP, TS_BOT, 0, 240);
+-  bool validContact = p.z > 100 && p.z < 850 &&
+-                      touchX >= 0 && touchX < 320 && touchY >= 0 && touchY < 240;
+-  if (validContact) {
+-    if (abs(touchX - previousX) <= 12 && abs(touchY - previousY) <= 12) {
+-      if (stableSamples < 3) ++stableSamples;
+-    } else {
+-      stableSamples = 1;
+-    }
+-    previousX = touchX;
+-    previousY = touchY;
+-  } else {
+-    stableSamples = 0;
+-  }
+-  // Jitter during a held touch must not count as a release.
+-  const bool touchPressed = touchLatch.update(validContact, millis());
+-  if (!touchPressed || stableSamples < 3) return;
+-  Serial.printf("[INPUT] Touch x=%d y=%d z=%d\n", touchX, touchY, p.z);
+-
+-  // Neu dang co chuong bao thuc hoac thong bao, cham man hinh de tat (tat coi dut diem)
+-  if (isAlarmActive || notifActive) {
+-    isAlarmActive = false;
+-    notifActive = false;
+-    stopBuzzer();
+-    stateChanged = true;
+-    lastBtnPress = millis();
++  static uint32_t lastScan=0;
++  const uint32_t now=millis();
++  if (rawButtonLevels()!=7) {
++    touchLatch.suppressUntilRelease(now);
+     return;
+   }
+-
+-  if (touchX < 150 && touchY < 40 && (millis() - lastBtnPress > 400)) {
+-    currentState = (AppState)((currentState + 1) % NUM_MODES);
+-    Serial.printf("[MODE] touch -> %d\n", (int)currentState);
+-    stateChanged = true; lastBtnPress = millis(); return;
+-  }
+-
+-  if (millis() - lastBtnPress <= 250) return;
+-
+-  if (currentState == MODE_POMODORO) {
+-    // ── XỬ LÝ CẢM ỨNG MÀN HÌNH CHỌN TASK ──
+-    if (pomoSelectingTask) {
+-      // Grid 2x2: mỗi ô 150x95, gap 10, startX=10, startY=50
+-      int cols = 2, bw = 145, bh = 85, gx = 10, gy = 10, startX = 10, startY = 50;
+-      for (int i = 0; i < NUM_TASK_TYPES; i++) {
+-        int col = i % cols, row = i / cols;
+-        int x = startX + col * (bw + gx), y = startY + row * (bh + gy);
+-        if (touchX >= x && touchX <= x + bw && touchY >= y && touchY <= y + bh) {
+-          selectedTaskTypeIndex = i;
+-          current_pomo_task_type = String(taskTypeLabels[i]);
+-          pomoSelectingTask = false;
+-          startBeep(1, 80, 2500);
+-          stateChanged = true;
+-          lastBtnPress = millis();
+-          Serial.printf("[TASK] User chon task: %s\n", taskTypeLabels[i]);
+-          return; // Chuyển sang màn hình Pomodoro
+-        }
++  if (uint32_t(now-lastScan)<15) return;
++  lastScan=now;
++  digitalWrite(33,HIGH);
++  digitalWrite(2,HIGH);
++  TSPoint p=ts.getPoint();
++  digitalWrite(YP,HIGH); pinMode(YP,OUTPUT);
++  digitalWrite(XM,HIGH); pinMode(XM,OUTPUT);
++  pinMode(XP,OUTPUT); pinMode(YM,OUTPUT);
++
++  static int16_t previousX=0, previousY=0;
++  static uint8_t stableSamples=0;
++  const int x=map(p.y,TS_LEFT,TS_RT,0,320), y=map(p.x,TS_TOP,TS_BOT,0,240);
++  const bool valid=p.z>100 && p.z<850 && x>=0 && x<320 && y>=0 && y<240;
++  if (valid) {
++    if (abs(x-previousX)<=12 && abs(y-previousY)<=12) {
++      if (stableSamples<3) ++stableSamples;
++    } else stableSamples=1;
++    previousX=x; previousY=y;
++  } else stableSamples=0;
++  if (!touchLatch.update(valid,now) || stableSamples<3) return;
++  Serial.printf("[INPUT] Touch x=%d y=%d z=%d\n",x,y,p.z);
++  handleTouchAt(x,y);
++}
++
++// Clock updates are independent of which screen is being rendered. Retain
++// fractional milliseconds and catch up after a slow LCD/BLE operation.
++void updateBackgroundTimers() {
++  const uint32_t now=millis();
++  if (pomoRunning && !pomoSelectingTask) {
++    uint32_t ticks=uint32_t(now-pomoLastTick)/1000;
++    while (ticks>0) {
++      const uint32_t remaining=pomoTime>0?uint32_t(pomoTime):1;
++      const uint32_t consumed=ticks<remaining?ticks:remaining;
++      pomoLastTick+=consumed*1000;
++      ticks-=consumed;
++      pomoTime=pomoTime>int(consumed)?pomoTime-int(consumed):0;
++      if (pomoTime==0) advancePomoPhase();
++    }
++  }
++  if (timerRunning && !timerSelecting && !timerFinished) {
++    const uint32_t ticks=uint32_t(now-timerLastTick)/1000;
++    if (ticks>0) {
++      const uint32_t remaining=timerSeconds>0?uint32_t(timerSeconds):0;
++      const uint32_t consumed=ticks<remaining?ticks:remaining;
++      timerSeconds-=int(consumed);
++      timerLastTick+=consumed*1000;
++      if (timerSeconds==0) {
++        timerRunning=false;
++        timerFinished=true;
++        timerRemainderMs=0;
++        lastTimerDraw=-2;
++        if (!isAlarmActive && !notifActive) startBeep(4,250,2500);
+       }
+-      return; // Vẫn đang chọn, không xử lý gì thêm
+-    }
+-    // ── XỬ LÝ CẢM ỨNG MÀN HÌNH POMODORO (như cũ) ──
+-    if (touchX >= 220 && touchX <= 310) {
+-      if (touchY >= 15 && touchY <= 60) {
+-        pomoWorkDuration += 5 * 60; if (pomoWorkDuration > 90 * 60) pomoWorkDuration = 90 * 60;
+-        if (!pomoRunning && pomoPhase == PHASE_WORK) { pomoTime = pomoWorkDuration; pomoInitialTime = pomoWorkDuration; lastPomoDraw = -2; }
+-        lastBtnPress = millis();
+-      } else if (touchY >= 70 && touchY <= 115) {
+-pomoWorkDuration -= 5 * 60; if (pomoWorkDuration < 5 * 60) pomoWorkDuration = 5 * 60;
+-        if (!pomoRunning && pomoPhase == PHASE_WORK) { pomoTime = pomoWorkDuration; pomoInitialTime = pomoWorkDuration; lastPomoDraw = -2; }
+-        lastBtnPress = millis();
+-      } else if (touchY >= 130 && touchY <= 180) {
+-        if (pomoRunning) pauseCount++; // Đếm số lần bấm PAUSE qua cảm ứng
+-        pomoRunning = !pomoRunning;
+-        // Ghi thời gian bắt đầu từ RTC khi START lần đầu (cảm ứng)
+-        if (pomoRunning && pomoStartTimeStr[0] == '\0') {
+-          if (rtcFound && !rtc.lostPower()) {
+-            DateTime n = rtc.now();
+-            snprintf(pomoStartTimeStr, sizeof(pomoStartTimeStr),
+-              "%04d-%02d-%02dT%02d:%02d:%02d",
+-              n.year(), n.month(), n.day(), n.hour(), n.minute(), n.second());
+-          } else {
+-            snprintf(pomoStartTimeStr, sizeof(pomoStartTimeStr), "2026-01-01T00:00:00");
+-          }
+-        }
+-        startBeep(1, 100, 3500); 
+-        drawPomodoroStartPauseButton(pomoRunning);
+-        lastBtnPress = millis();
+-      } else if (touchY >= 192 && touchY <= 232) {
+-        resetPomodoro(); lastBtnPress = millis();
+-      }
+-    }
+-  }
+-  else if (currentState == MODE_TIMER) {
+-    if (timerSelecting) {
+-      int cols = 4, bw = 70, bh = 75, gx = 8, gy = 8, startX = 8, startY = 45;
+-      for (int i = 0; i < NUM_PRESETS; i++) {
+-        int col = i % cols, row = i / cols;
+-        int x = startX + col * (bw + gx), y = startY + row * (bh + gy);
+-        if (touchX >= x && touchX <= x + bw && touchY >= y && touchY <= y + bh) {
+-          timerInitial = timerSeconds = timerPresets[i];
+-          timerSelecting = false; timerRunning = true; timerFinished = false;
+-          stateChanged = true; lastBtnPress = millis(); return;
+-        }
+-      }
+-    } else {
+-      if (touchY >= 155 && touchY <= 210) {
+-        if (touchX >= 20 && touchX <= 150) { 
+-          if (!timerFinished) { timerRunning = !timerRunning; drawTimerStartPauseButton(timerRunning); lastBtnPress = millis(); }
+-        } else if (touchX >= 170 && touchX <= 300) { 
+-          resetTimerToSelection(); lastBtnPress = millis();
+-        }
+-      }
+-    }
+-  }
+-  else if (currentState == MODE_BLUETOOTH && isBluetoothConnected) {
+-    if (touchY >= 140 && touchY <= 200) {
+-      if (touchX >= 15 && touchX <= 100) {
+-        a2dp_sink.previous(); lastBtnPress = millis();
+-      } else if (touchX >= 115 && touchX <= 200) {
+-        a2dp_sink.play(); lastBtnPress = millis();
+-      } else if (touchX >= 215 && touchX <= 300) {
+-        a2dp_sink.next(); lastBtnPress = millis();
+-      }
+-    }
+-  }
+-}
+-
+-// ==========================================
++    }
++  }
++}
++
++
+ // Helper: draw analog clock hands (erase old, draw new)
+ static int _prevHx = -1, _prevHy = -1, _prevMx = -1, _prevMy = -1, _prevSx = -1, _prevSy = -1;
+ // Giảm radius từ 90 xuống 85, dời tâm xuống 125 để không bị cắt viền
+@@ -1090,6 +1187,9 @@
+ // GIAO DIỆN 1: ĐỒNG HỒ
+ // ==========================================
+ void runClockMode() {
++  static uint32_t lastPoll=0;
++  if (!stateChanged && uint32_t(millis()-lastPoll)<100) return;
++  lastPoll=millis();
+   DateTime now = (rtcFound && !rtc.lostPower()) ? rtc.now() : DateTime(2026, 1, 1, 0, 0, 0);
+   static int lastDay   = -1;
+   static int lastSecond = -1;
+@@ -1256,7 +1356,7 @@
+     }
+     // Ngày + thứ
+     if (n.day() != lastDay) {
+-      tft.fillRect(0, 188, 145, 52, C_BLACK);
++      tft.fillRect(0, 188, 145, 40, C_BLACK);
+       tft.setTextColor(0x6B6D, C_BLACK); tft.setTextSize(2);
+       tft.setCursor(4, 192);
+       char ds[16]; sprintf(ds, "T.%s", daysVi[di]);
+@@ -1414,9 +1514,9 @@
+   pomoStartTimeStr[0] = '\0';  // Clear thời gian bắt đầu cho phiên mới
+   pomoTime = pomoWorkDuration;
+   pomoInitialTime = pomoWorkDuration;
++  pomoRemainderMs = 0;
+   pomoSelectingTask = true;  // Quay lại màn hình chọn Task cho phiên mới
+-  current_pomo_task_type = "General";  // Reset task type về mặc định
+-  selectedTaskTypeIndex = 3;
++  // Keep the last confirmed task and the independently selected grid focus.
+   stateChanged = true;
+ }
+ 
+@@ -1435,7 +1535,7 @@
+       pomoPhase = PHASE_BREAK;
+       pomoTime = pomoBreakDuration;
+     }
+-    startBeep(4, 200, 4000);
++    if (!isAlarmActive && !notifActive) startBeep(4, 200, 4000);
+   } else {
+     pomoPhase = PHASE_WORK;
+     pomoTime = pomoWorkDuration;
+@@ -1448,7 +1548,7 @@
+     } else {
+       snprintf(pomoStartTimeStr, sizeof(pomoStartTimeStr), "2026-01-01T00:00:00");
+     }
+-    startBeep(4, 200, 4000);
++    if (!isAlarmActive && !notifActive) startBeep(4, 200, 4000);
+   }
+   pomoInitialTime = pomoTime;
+   lastPomoDraw = -2;
+@@ -1458,12 +1558,23 @@
+ // GIAO DIỆN CHỌN LOẠI CÔNG VIỆC (TASK TYPE)
+ // Giải quyết: "cách thức thực hiện trong đồng hồ"
+ // ==========================================
++// Only repaint the old/new focus outlines; keep the labels and background.
++void updateSelectionOutline(bool task, int previous, int selected) {
++  const int cols=task?2:4, bw=task?145:70, bh=task?85:75;
++  const int gx=task?10:8, gy=task?10:8;
++  const int sx=task?10:8, sy=task?50:45;
++  const int radius=task?6:4;
++  tft.drawRoundRect(sx+(previous%cols)*(bw+gx)+2,
++                    sy+(previous/cols)*(bh+gy)+2,bw-4,bh-4,radius,C_DARK_GRAY);
++  tft.drawRoundRect(sx+(selected%cols)*(bw+gx)+2,
++                    sy+(selected/cols)*(bh+gy)+2,bw-4,bh-4,radius,C_WHITE);
++}
++
+ void drawTaskSelectGUI() {
+   tft.fillScreen(C_BLACK);
+   // Tiêu đề
+   tft.setTextColor(C_CYAN); tft.setTextSize(2);
+   tft.setCursor(30, 12); tft.print("CHON CONG VIEC");
+-  tft.setCursor(10, 36); tft.setTextSize(1); tft.print("36:NEXT   34:OK   35:BACK (GIU: CLOCK)");
+ 
+   // Vẽ 4 nút grid 2x2
+   int cols = 2, bw = 145, bh = 85, gx = 10, gy = 10, startX = 10, startY = 50;
+@@ -1474,7 +1585,7 @@
+ 
+     tft.fillRoundRect(x, y, bw, bh, 8, C_DARK_GRAY);
+     tft.drawRoundRect(x, y, bw, bh, 8, taskTypeColors[i]);
+-    if (i == selectedTaskTypeIndex) tft.drawRoundRect(x+2, y+2, bw-4, bh-4, 6, C_WHITE);
++    if (i == focusByScreen[1]) tft.drawRoundRect(x+2, y+2, bw-4, bh-4, 6, C_WHITE);
+ 
+     // Tên task căn giữa
+     tft.setTextColor(taskTypeColors[i]); tft.setTextSize(2);
+@@ -1508,11 +1619,11 @@
+   tft.setCursor(12, 5); tft.print("Task: ");
+   tft.print(current_pomo_task_type.c_str());
+ 
+-  tft.drawRoundRect(10, 15, 200, 217, 8, C_DARK_GRAY);
++  tft.drawRoundRect(10, 15, 200, 213, 8, C_DARK_GRAY);
+   tft.fillRoundRect(220, 15, 90, 45, 6, C_DARK_GRAY); tft.setTextColor(C_CYAN); tft.setTextSize(2); tft.setCursor(245, 28); tft.print("+5m");
+   tft.fillRoundRect(220, 70, 90, 45, 6, C_DARK_GRAY); tft.setTextColor(C_CYAN); tft.setTextSize(2); tft.setCursor(245, 83); tft.print("-5m");
+   drawPomodoroStartPauseButton(pomoRunning);
+-  tft.fillRoundRect(220, 192, 90, 40, 6, C_RED); tft.setTextColor(C_WHITE); tft.setTextSize(2); tft.setCursor(238, 204); tft.print("RESET");
++  tft.fillRoundRect(220, 190, 90, 36, 6, C_RED); tft.setTextColor(C_WHITE); tft.setTextSize(2); tft.setCursor(238, 200); tft.print("RESET");
+   lastPomoSessionDraw = -2; lastPomoPhaseDraw = (PomoPhase)-1;
+ }
+ 
+@@ -1524,12 +1635,6 @@
+   }
+ 
+   if (stateChanged) { drawPomodoroGUI(); stateChanged = false; lastPomoDraw = -2; }
+-
+-  if (pomoRunning && (millis() - pomoLastTick >= 1000)) {
+-    if (pomoTime > 0) pomoTime--;
+-    else advancePomoPhase();
+-    pomoLastTick = millis();
+-  }
+ 
+   if (pomoPhase != lastPomoPhaseDraw || pomoSessionCount != lastPomoSessionDraw) {
+     tft.fillRect(22, 18, 190, 18, C_BLACK);
+@@ -1567,20 +1672,20 @@
+   timerRunning = false;
+   timerFinished = false;
+   timerSelecting = true;
++  timerRemainderMs = 0;
+   stateChanged = true;
+ }
+ 
+ void drawTimerSelectGUI() {
+   tft.fillScreen(C_BLACK);
+   tft.setTextColor(C_CYAN); tft.setTextSize(2); tft.setCursor(70, 15); tft.print("CHON THOI GIAN");
+-  tft.setCursor(10, 34); tft.setTextSize(1); tft.print("36:NEXT   34:OK   35:BACK (GIU: CLOCK)");
+   int cols = 4, bw = 70, bh = 75, gx = 8, gy = 8, startX = 8, startY = 45;
+   for (int i = 0; i < NUM_PRESETS; i++) {
+     int col = i % cols, row = i / cols;
+ int x = startX + col * (bw + gx), y = startY + row * (bh + gy);
+     tft.fillRoundRect(x, y, bw, bh, 6, C_DARK_GRAY);
+     tft.drawRoundRect(x, y, bw, bh, 6, C_CYAN);
+-    if (i == selectedTimerPreset) tft.drawRoundRect(x+2, y+2, bw-4, bh-4, 4, C_WHITE);
++    if (i == focusByScreen[3]) tft.drawRoundRect(x+2, y+2, bw-4, bh-4, 4, C_WHITE);
+     tft.setTextColor(C_WHITE); tft.setTextSize(2);
+     int tw = strlen(timerLabels[i]) * 12;
+     tft.setCursor(x + (bw - tw) / 2, y + bh / 2 - 8);
+@@ -1593,12 +1698,12 @@
+   tft.setTextColor(C_BLACK, running ? C_ORANGE : C_GREEN);
+   tft.setTextSize(2);
+   tft.setCursor(running ? 45 : 35, 175);
+-  tft.print(running ? "PAUSE" : "RESUME");
++  tft.print(timerFinished ? "DONE" : running ? "PAUSE" : "RESUME");
+ }
+ 
+ void drawTimerRunGUI() {
+   tft.fillScreen(C_BLACK);
+-  tft.drawRoundRect(10, 15, 300, 217, 8, C_DARK_GRAY);
++  tft.drawRoundRect(10, 15, 300, 213, 8, C_DARK_GRAY);
+   drawTimerStartPauseButton(timerRunning);
+   tft.fillRoundRect(170, 155, 130, 55, 6, C_RED); tft.setTextColor(C_WHITE); tft.setTextSize(2);
+   tft.setCursor(215, 175); tft.print("STOP");
+@@ -1606,6 +1711,7 @@
+ }
+ 
+ void runTimerMode() {
++  const bool fullRedraw=stateChanged;
+   if (stateChanged) {
+     if (timerSelecting) drawTimerSelectGUI(); else drawTimerRunGUI();
+     stateChanged = false;
+@@ -1613,20 +1719,9 @@
+ 
+   if (timerSelecting) return;
+ 
+-  if (timerRunning && !timerFinished && (millis() - timerLastTick >= 1000)) {
+-    if (timerSeconds > 0) {
+-      timerSeconds--;
+-    } else {
+-      timerRunning = false;
+-      timerFinished = true;
+-      lastTimerDraw = -2;
+-      startBeep(4, 250, 2500); 
+-    }
+-    timerLastTick = millis();
+-  }
+-
+-  static bool lastFinishedDraw = false;
+-  if (timerFinished != lastFinishedDraw) {
++  static int lastFinishedDraw = -1;
++  if (fullRedraw || int(timerFinished) != lastFinishedDraw) {
++    drawTimerStartPauseButton(timerRunning);
+     tft.fillRect(20, 30, 280, 20, C_BLACK);
+     tft.setTextSize(2); tft.setTextColor(timerFinished ? C_RED : C_WHITE);
+     tft.setCursor(timerFinished ? 95 : 80, 30);
+@@ -1634,7 +1729,7 @@
+     lastFinishedDraw = timerFinished;
+   }
+ 
+-  if (timerSeconds != lastTimerDraw || timerFinished) {
++  if (timerSeconds != lastTimerDraw) {
+     int m = timerSeconds / 60; int s = timerSeconds % 60;
+     char tStr[12]; sprintf(tStr, "%02d:%02d", m, s);
+     tft.fillRect(20, 60, 280, 70, C_BLACK);
+@@ -1673,8 +1768,6 @@
+     if (isBluetoothConnected) {
+       tft.fillScreen(C_GREEN);
+       tft.drawCircle(160, 60, 40, C_WHITE);
+-
+-      
+       drawBTIcon(160, 60, 20, C_WHITE);
+       tft.setTextSize(3); tft.setTextColor(C_WHITE); tft.setCursor(75, 115); tft.print("CONNECTED");
+       tft.fillRoundRect(15, 155, 80, 50, 5, C_DARK_GRAY);
+--- a/src/io_service.h
++++ b/src/io_service.h
+@@ -1,7 +1,9 @@
+ #pragma once
+ #include "io_logic.h"
++constexpr uint8_t BUTTON_MODE_PIN=36, BUTTON_OK_PIN=34, BUTTON_SELECT_PIN=35;
+ bool beginIoService();
+ bool readKeyEvent(KeyEvent& event);
++void discardKeyEvents();
+ void requestBeep(int count, int onMs, int frequency);
+ void silenceBuzzer();
+-uint8_t rawButtonLevels(); // bit0=NEXT36, bit1=OK34, bit2=BACK35; released=1
++uint8_t rawButtonLevels(); // bit0=MODE36, bit1=OK34, bit2=SELECT35; released=1
+--- a/src/io_service.cpp
++++ b/src/io_service.cpp
+@@ -5,23 +5,23 @@
+ #include <freertos/queue.h>
+ 
+ namespace {
+-constexpr int NEXT_PIN=36, OK_PIN=34, BACK_PIN=35, BUZZER_PIN=23;
+-constexpr int BUZZER_CHANNEL=1, BUZZER_DUTY=128;
++constexpr int MODE_PIN=BUTTON_MODE_PIN, OK_PIN=BUTTON_OK_PIN,
++              SELECT_PIN=BUTTON_SELECT_PIN, BUZZER_PIN=23;
++constexpr int BUZZER_CHANNEL=4, BUZZER_RESOLUTION=10, BUZZER_DUTY=512;
+ struct BeepCommand { int count, onMs, frequency; };
+ QueueHandle_t keyQueue=nullptr, beepQueue=nullptr;
+ volatile uint8_t buttonLevels=7;
+ 
+ void ioTask(void*) {
+-  PressLatch next(25,25), ok(25,25);
+-  BackKey back;
++  NavigationButtons buttons;
+   BeepSequence beep;
+   bool pwmOn=false;
+   bool buzzerReady=true;
+   int frequency=2700;
+ #if ESP_ARDUINO_VERSION_MAJOR >= 3
+-  buzzerReady=ledcAttach(BUZZER_PIN,frequency,8);
++  buzzerReady=ledcAttach(BUZZER_PIN,frequency,BUZZER_RESOLUTION);
+ #else
+-  buzzerReady=ledcSetup(BUZZER_CHANNEL,frequency,8)>0;
++  buzzerReady=ledcSetup(BUZZER_CHANNEL,frequency,BUZZER_RESOLUTION)>0;
+   if (buzzerReady) ledcAttachPin(BUZZER_PIN,BUZZER_CHANNEL);
+ #endif
+   if (!buzzerReady) Serial.println("[IO] ERROR: buzzer PWM init failed");
+@@ -30,19 +30,21 @@
+ #else
+   if (buzzerReady) ledcWrite(BUZZER_CHANNEL,0);
+ #endif
+-  Serial.printf("[IO] READY next36=%d ok34=%d back35=%d PWM23=%s (released=1)\n",
+-                digitalRead(NEXT_PIN),digitalRead(OK_PIN),digitalRead(BACK_PIN),
++  Serial.printf("[IO] READY MODE36=%d OK34=%d SELECT35=%d PWM23=%s (released=1)\n",
++                digitalRead(MODE_PIN),digitalRead(OK_PIN),digitalRead(SELECT_PIN),
+                 buzzerReady?"OK":"FAILED");
+   TickType_t wake=xTaskGetTickCount();
+   for (;;) {
+     const uint32_t now=millis();
+-    buttonLevels=(digitalRead(NEXT_PIN)?1:0) | (digitalRead(OK_PIN)?2:0) |
+-                 (digitalRead(BACK_PIN)?4:0);
++    buttonLevels=(digitalRead(MODE_PIN)?1:0) | (digitalRead(OK_PIN)?2:0) |
++                 (digitalRead(SELECT_PIN)?4:0);
+     KeyEvent events[3]={KeyEvent::None,KeyEvent::None,KeyEvent::None};
+-    if (next.update(!(buttonLevels&1),now)) events[0]=KeyEvent::Next;
+-    if (ok.update(!(buttonLevels&2),now)) events[1]=KeyEvent::Ok;
+-    events[2]=back.update(!(buttonLevels&4),now);
++    for (uint8_t i=0;i<3;++i)
++      events[i]=buttons.update(i,!(buttonLevels&(1<<i)),now);
+     for (KeyEvent event:events) {
++      if (event!=KeyEvent::None)
++        Serial.printf("[IO] key=%u at=%lu raw=0x%X\n", unsigned(event),
++                      (unsigned long)now, buttonLevels);
+       if (event!=KeyEvent::None && xQueueSend(keyQueue,&event,0)!=pdTRUE)
+         Serial.println("[IO] WARNING: key event queue full");
+     }
+@@ -58,9 +60,9 @@
+     }
+     if (changedFrequency && buzzerReady) {
+ #if ESP_ARDUINO_VERSION_MAJOR >= 3
+-      ledcChangeFrequency(BUZZER_PIN,frequency,8);
++      ledcWriteTone(BUZZER_PIN,frequency);
+ #else
+-      ledcChangeFrequency(BUZZER_CHANNEL,frequency,8);
++      ledcWriteTone(BUZZER_CHANNEL,frequency);
+ #endif
+     }
+     bool on=beep.tick(now);
+@@ -78,7 +80,7 @@
+ }
+ 
+ bool beginIoService() {
+-  pinMode(NEXT_PIN,INPUT); pinMode(OK_PIN,INPUT); pinMode(BACK_PIN,INPUT);
++  pinMode(MODE_PIN,INPUT); pinMode(OK_PIN,INPUT); pinMode(SELECT_PIN,INPUT);
+   pinMode(BUZZER_PIN,OUTPUT); digitalWrite(BUZZER_PIN,LOW);
+   keyQueue=xQueueCreate(16,sizeof(KeyEvent));
+   beepQueue=xQueueCreate(1,sizeof(BeepCommand));
+@@ -97,6 +99,7 @@
+ bool readKeyEvent(KeyEvent& event) {
+   return keyQueue && xQueueReceive(keyQueue,&event,0)==pdTRUE;
+ }
++void discardKeyEvents() { if (keyQueue) xQueueReset(keyQueue); }
+ void requestBeep(int count,int onMs,int frequency) {
+   if (!beepQueue) return;
+   BeepCommand command={constrain(count,0,20),constrain(onMs,10,5000),
+--- a/src/io_logic.h
++++ b/src/io_logic.h
+@@ -2,34 +2,41 @@
+ #include <stdint.h>
+ #include "input_latch.h"
+ 
+-enum class KeyEvent : uint8_t { None, Next, Ok, Back, BackLong };
++enum class KeyEvent : uint8_t { None, Mode, Select, Ok };
+ 
+-class BackKey {
++// Same raw-change/stable-level debounce as the hardware test (active low
++// is converted to pressed=true by io_service). No internal GPIO pull-ups.
++class DebouncedButton {
+  public:
+-  KeyEvent update(bool pressed, uint32_t now) {
+-    if (latch_.update(pressed, now)) {
+-      pending_ = true;
+-      pressedAt_ = now;
++  bool update(bool pressed, uint32_t now) {
++    if (!initialized_) {
++      initialized_ = true;
++      raw_ = down_ = pressed;
++      changedAt_ = now;
++      return false;
+     }
+-    if (pressed) {
+-      releaseSeen_ = false;
+-      if (pending_ && uint32_t(now - pressedAt_) >= 1000) {
+-        pending_ = false;
+-        return KeyEvent::BackLong;
+-      }
+-    } else if (pending_) {
+-      if (!releaseSeen_) { releaseSeen_ = true; releasedAt_ = now; }
+-      if (uint32_t(now - releasedAt_) >= 25) {
+-        pending_ = false;
+-        return KeyEvent::Back;
+-      }
++    if (pressed != raw_) { raw_ = pressed; changedAt_ = now; }
++    if (raw_ != down_ && uint32_t(now - changedAt_) >= 25) {
++      down_ = raw_;
++      return down_;
+     }
+-    return KeyEvent::None;
++    return false;
++  }
++  bool down() const { return down_; }
++ private:
++  bool initialized_ = false, raw_ = false, down_ = false;
++  uint32_t changedAt_ = 0;
++};
++
++// Physical sampling order: GPIO36 MODE, GPIO34 OK, GPIO35 SELECT.
++class NavigationButtons {
++ public:
++  KeyEvent update(uint8_t index, bool pressed, uint32_t now) {
++    if (index>=3 || !buttons_[index].update(pressed,now)) return KeyEvent::None;
++    return index==0?KeyEvent::Mode:index==1?KeyEvent::Ok:KeyEvent::Select;
+   }
+  private:
+-  PressLatch latch_{25, 25};
+-  bool pending_ = false, releaseSeen_ = false;
+-  uint32_t pressedAt_ = 0, releasedAt_ = 0;
++  DebouncedButton buttons_[3];
+ };
+ 
+ class BeepSequence {
+--- a/src/input_latch.h
++++ b/src/input_latch.h
+@@ -7,6 +7,14 @@
+  public:
+   PressLatch(uint32_t pressMs, uint32_t releaseMs)
+       : pressMs_(pressMs), releaseMs_(releaseMs) {}
++  // After a physical key, an existing touch must be released before it can
++  // activate a control. Prevent a held touch leaking through an alert dismiss.
++  void suppressUntilRelease(uint32_t now) {
++    initialized_ = true;
++    raw_ = true;
++    armed_ = false;
++    changedAt_ = now;
++  }
+   bool update(bool pressed, uint32_t now) {
+     if (!initialized_) {
+       initialized_ = true;
+--- a/test/input_latch_test.cpp
++++ b/test/input_latch_test.cpp
+@@ -0,0 +1,108 @@
++#include "../src/io_service.h"
++#include <assert.h>
++#include <stdio.h>
++
++static int sample(PressLatch& button, bool down, uint32_t start, uint32_t count) {
++  int events = 0;
++  for (uint32_t i=0; i<count; ++i) events += button.update(down, start+i);
++  return events;
++}
++int main() {
++  static_assert(BUTTON_MODE_PIN==36 && BUTTON_OK_PIN==34 && BUTTON_SELECT_PIN==35,
++                "Physical GPIO assignments must not change");
++  NavigationButtons boot;
++  assert(boot.update(2,true,0)==KeyEvent::None);
++  assert(boot.update(2,true,5000)==KeyEvent::None);
++  assert(boot.update(2,false,5100)==KeyEvent::None);
++  assert(boot.update(2,false,5125)==KeyEvent::None);
++  assert(boot.update(2,true,5200)==KeyEvent::None);
++  assert(boot.update(2,true,5225)==KeyEvent::Select);
++  // A brief release during a held press cannot arm another action.
++  assert(boot.update(2,false,5300)==KeyEvent::None);
++  assert(boot.update(2,true,5320)==KeyEvent::None);
++  assert(boot.update(2,true,7000)==KeyEvent::None);
++  NavigationButtons wrapKeys;
++  assert(wrapKeys.update(1,false,0xffffff00u)==KeyEvent::None);
++  assert(wrapKeys.update(1,true,0xfffffff0u)==KeyEvent::None);
++  assert(wrapKeys.update(1,true,0x9u)==KeyEvent::Ok);
++  assert(wrapKeys.update(1,true,0x1000u)==KeyEvent::None);
++  PressLatch contact(80,150);
++  contact.suppressUntilRelease(0);
++  assert(!contact.update(true,1000));
++  assert(!contact.update(false,1100));
++  assert(!contact.update(false,1250));
++  assert(!contact.update(true,1300));
++  assert(contact.update(true,1380));
++  assert(!contact.update(true,5000));
++  NavigationButtons navigation;
++  for (uint8_t i=0;i<3;++i) {
++    assert(navigation.update(i,false,0)==KeyEvent::None);
++    assert(navigation.update(i,true,100)==KeyEvent::None);
++    assert(navigation.update(i,true,124)==KeyEvent::None);
++    const KeyEvent expected=i==0?KeyEvent::Mode:i==1?KeyEvent::Ok:KeyEvent::Select;
++    assert(navigation.update(i,true,125)==expected);
++    assert(navigation.update(i,true,1125)==KeyEvent::None);
++    assert(navigation.update(i,true,5125)==KeyEvent::None);
++    assert(navigation.update(i,false,5200)==KeyEvent::None);
++    assert(navigation.update(i,false,5225)==KeyEvent::None);
++    assert(navigation.update(i,true,5300)==KeyEvent::None);
++    assert(navigation.update(i,true,5325)==expected);
++  }
++  puts("PASS: MODE36, OK34, SELECT35 on press; holding and release produce no extra event");
++  // Hardware-test debounce: accept press/release only after 25 ms.
++  DebouncedButton key;
++  assert(!key.update(false,0));
++  assert(!key.update(true,10));
++  assert(!key.update(false,20));
++  assert(!key.update(true,30));
++  assert(!key.update(true,54));
++  assert(key.update(true,55));
++  assert(!key.update(true,2000));
++  assert(!key.update(false,2010));
++  assert(key.down());
++  assert(!key.update(false,2035));
++  assert(!key.down());
++  assert(!key.update(true,2040));
++  assert(key.update(true,2065));
++  // Stuck/held at power-on cannot switch screens.
++  PressLatch held(45,120);
++  assert(sample(held,true,0,5000)==0);
++  assert(sample(held,false,5000,200)==0);
++  assert(sample(held,true,5200,100)==1);
++  assert(sample(held,true,5300,5000)==0);
++  // Bounce and a brief release must not create additional presses.
++  assert(sample(held,false,10300,20)==0);
++  assert(sample(held,true,10320,200)==0);
++  assert(sample(held,false,10520,200)==0);
++  assert(sample(held,true,10720,200)==1);
++  PressLatch bounce(45,120);
++  assert(sample(bounce,false,0,200)==0);
++  for (int i=0;i<10;++i) {
++    assert(sample(bounce,true,200+i*20,10)==0);
++    assert(sample(bounce,false,210+i*20,10)==0);
++  }
++  assert(sample(bounce,true,400,100)==1);
++  // A held MODE cannot prevent the other button from being pressed.
++  PressLatch other(45,120);
++  assert(sample(other,false,0,200)==0);
++  assert(sample(other,true,200,100)==1);
++  assert(sample(other,false,300,200)==0);
++  assert(sample(other,true,500,100)==1);
++  // Unsigned time arithmetic remains valid when millis wraps.
++  PressLatch wrap(45,120);
++  assert(sample(wrap,false,0xffffff00u,200)==0);
++  assert(sample(wrap,true,0xffffffc8u,100)==1);
++  BeepSequence beep;
++  beep.start(3,100,0);
++  assert(beep.tick(0)); assert(beep.tick(99)); assert(!beep.tick(100));
++  assert(!beep.tick(179)); assert(beep.tick(180)); assert(!beep.tick(280));
++  assert(beep.tick(360)); assert(!beep.tick(460)); assert(!beep.tick(5000));
++  beep.start(8,200,6000); assert(beep.tick(6001));
++  beep.stop(); assert(!beep.tick(6002));
++  beep.start(3,100,0xffffffc0u);
++  assert(beep.tick(0xffffffc1u)); assert(!beep.tick(0x24u));
++  assert(!beep.tick(0x10000u));
++  puts("PASS: 25 ms stable press/release");
++  puts("PASS: exact beep timing, stop during beep, delayed update and timer wrap");
++  puts("PASS: boot hold, long hold, bounce, release, independent keys, millis wrap");
++}
+--- a/test/navigation_test.cpp
++++ b/test/navigation_test.cpp
+@@ -0,0 +1,266 @@
++#include "../src/io_service.h"
++#include <algorithm>
++#include <cstdio>
++#include <cstring>
++#include <deque>
++#include <string>
++#include <vector>
++
++// Hardware boundary only: navigation and drawing handlers are extracted
++// verbatim from Esp32Pj.ino by extract_navigation.ps1.
++enum AppState { MODE_CLOCK, MODE_POMODORO, MODE_TIMER, MODE_BLUETOOTH };
++enum PomoPhase { PHASE_WORK, PHASE_BREAK, PHASE_LONG_BREAK };
++const int NUM_MODES=4, NUM_TASK_TYPES=4, NUM_PRESETS=8;
++const int C_BLACK=0, C_WHITE=0xffff, C_DARK_GRAY=0x2104, C_CYAN=0x7ff,
++          C_GREEN=0x7e0, C_RED=0xf800, C_ORANGE=0xfd20, C_MID_GRAY=0x4a49, C_PURPLE=0x780f;
++AppState currentState=MODE_CLOCK;
++PomoPhase pomoPhase=PHASE_WORK;
++bool stateChanged=true, isBluetoothConnected=false, isAlarmActive=false, notifActive=false;
++bool pomoSelectingTask=true, pomoRunning=false, timerSelecting=true,
++     timerRunning=false, timerFinished=false, rtcFound=false;
++int controlFocus=0, currentThemeId=0, lastMinute=-1, selectedTaskTypeIndex=3,
++    selectedTimerPreset=0, pomoWorkDuration=1500, pomoTime=1500, pomoInitialTime=1500,
++    pauseCount=0, pomoSessionCount=0, lastPomoDraw=-2, timerSeconds=0,
++    timerInitial=0, lastTimerDraw=-2;
++uint32_t lastBtnPress=0, pomoLastTick=0, timerLastTick=0, nowMs=100;
++uint32_t pomoRemainderMs=0, timerRemainderMs=0;
++int focusByScreen[6]={-1,3,2,0,0,0};
++int pomoBreakDuration=300,pomoLongBreakDuration=900,lastPomoSessionDraw=-2;
++PomoPhase lastPomoPhaseDraw=PHASE_WORK;
++PressLatch touchLatch(80,150);
++const char* taskTypeLabels[]={"Coding","Reading","Study","General"};
++const uint16_t taskTypeColors[]={C_CYAN,C_GREEN,C_WHITE,C_ORANGE};
++const int timerPresets[]={10,15,30,60,300,600,900,1500};
++const char* timerLabels[]={"10s","15s","30s","1m","5m","10m","15m","25m"};
++std::string current_pomo_task_type="General";
++char pomoStartTimeStr[25]={0};
++struct DateTime {
++  int year(){return 2026;} int month(){return 1;} int day(){return 1;}
++  int hour(){return 12;} int minute(){return 0;} int second(){return 0;}
++};
++struct Rtc { bool lostPower(){return false;} DateTime now(){return {};} } rtc;
++struct SerialMock { template<class... T> void printf(const char*,T...){} } Serial;
++struct Prefs { int writes=0; void putInt(const char*,int){++writes;} } prefs;
++struct Audio {
++  bool connected=false;
++  int prevCalls=0, playCalls=0, nextCalls=0;
++  bool is_connected(){return connected;}
++  void previous(){++prevCalls;} void play(){++playCalls;} void next(){++nextCalls;}
++} a2dp_sink;
++struct Rect { int x,y,w,h; };
++struct Display {
++  int fullClears=0;
++  std::vector<Rect> fills;
++  std::string text;
++  void clearLog(){fullClears=0; fills.clear(); text.clear();}
++  void fillScreen(int){++fullClears;}
++  void fillRect(int x,int y,int w,int h,int){fills.push_back({x,y,w,h});}
++  void fillRoundRect(int,int,int,int,int,int){}
++  std::vector<Rect> outlines;
++  void drawRoundRect(int x,int y,int w,int h,int,int){outlines.push_back({x,y,w,h});}
++  void setTextSize(int){} void setTextColor(int,int=0){} void setCursor(int,int){}
++  void print(const char* s){text+=s;}
++  void print(int n){text+=std::to_string(n);}
++} tft;
++uint32_t millis(){return nowMs;}
++int constrain(int n,int low,int high){return std::max(low,std::min(high,n));}
++std::deque<KeyEvent> keys;
++bool readKeyEvent(KeyEvent& e){if(keys.empty())return false;e=keys.front();keys.pop_front();return true;}
++void discardKeyEvents(){keys.clear();}
++uint8_t rawButtonLevels(){return 7;}
++int silenceCalls=0, beepCalls=0, completedSends=0, cancelledSends=0;
++void stopBuzzer(){++silenceCalls;}
++void startBeep(int,int,int){++beepCalls;}
++void sendPomodoroData(bool completed){if(completed)++completedSends;else ++cancelledSends;}
++void resetPomodoro(); void resetTimerToSelection();
++void drawTimerStartPauseButton(bool); void updateSelectionOutline(bool,int,int);
++void syncControlFocus();
++#include "../.pio/navigation_under_test.inc"
++
++int failures=0,checks=0;
++void check(bool ok,const char* name){++checks;printf("%s: %s\n",ok?"PASS":"FAIL",name);if(!ok)++failures;}
++void press(KeyEvent e){keys.push_back(e);handleButtons();}
++void render(){syncControlFocus();drawControlFocus(stateChanged);stateChanged=false;}
++void resetFixture() {
++  currentState=MODE_CLOCK;pomoPhase=PHASE_WORK;stateChanged=true;
++  isBluetoothConnected=false;isAlarmActive=false;notifActive=false;
++  pomoSelectingTask=true;pomoRunning=false;timerSelecting=true;
++  timerRunning=false;timerFinished=false;rtcFound=false;
++  controlFocus=0;currentThemeId=0;selectedTaskTypeIndex=3;selectedTimerPreset=0;
++  pomoWorkDuration=1500;pomoTime=pomoInitialTime=1500;
++  pomoBreakDuration=300;pomoLongBreakDuration=900;
++  pauseCount=pomoSessionCount=0;lastPomoDraw=lastTimerDraw=-2;
++  timerSeconds=timerInitial=0;pomoRemainderMs=timerRemainderMs=0;
++  nowMs=1000;pomoLastTick=timerLastTick=nowMs;
++  const int focus[6]={-1,3,2,0,0,0};std::copy(focus,focus+6,focusByScreen);
++  current_pomo_task_type="General";pomoStartTimeStr[0]=0;
++  a2dp_sink.connected=false;a2dp_sink.prevCalls=a2dp_sink.playCalls=a2dp_sink.nextCalls=0;
++  silenceCalls=beepCalls=completedSends=cancelledSends=prefs.writes=0;
++  keys.clear();tft.clearLog();tft.outlines.clear();
++}
++void enter(AppState screen) {currentState=screen;stateChanged=true;syncControlFocus();}
++void clockRoundTrip() {for(int i=0;i<4;++i)press(KeyEvent::Mode);}
++int main(){
++  resetFixture();
++  press(KeyEvent::Select);render();
++  check(controlFocus==1 && currentThemeId==0 && prefs.writes==0,
++        "first SELECT changes theme focus only");
++  press(KeyEvent::Ok);
++  check(currentThemeId==1 && prefs.writes==1,"OK confirms focused theme and saves NVS once");
++  press(KeyEvent::Select);clockRoundTrip();
++  check(currentState==MODE_CLOCK && controlFocus==2 && currentThemeId==1,
++        "MODE round trip preserves pending theme and confirmed theme separately");
++  const int focusBefore=controlFocus;drawControlFocus(true);
++  check(controlFocus==focusBefore,"drawing never changes focus");
++  for(int theme: {0,2}) {
++    currentThemeId=theme;tft.clearLog();drawControlFocus(true);
++    bool coversDate=false;for(auto r:tft.fills) if(r.y<22)coversDate=true;
++    check(!coversDate,"theme focus does not cover date/temperature");
++  }
++  tft.clearLog();drawNavigationHelp();
++  check(tft.text=="MODE: MAN HINH | SELECT: DI CHUYEN | OK: CHON","navigation help matches required labels");
++
++  // MODE is independent of every sub-screen and does not cancel sessions.
++  resetFixture();
++  for(bool selecting: {true,false}) {
++    for(int i=0;i<4;++i) {
++      pomoSelectingTask=timerSelecting=selecting;
++      pomoRunning=timerRunning=!selecting;pomoTime=123;timerSeconds=45;
++      enter(static_cast<AppState>(i));press(KeyEvent::Mode);
++      check(currentState==static_cast<AppState>((i+1)%4) && pomoTime==123 && timerSeconds==45 &&
++            pomoRunning==!selecting && timerRunning==!selecting && cancelledSends==0,
++            "MODE cycles screens without resetting or stopping sessions");
++    }
++  }
++
++  resetFixture();enter(MODE_POMODORO);press(KeyEvent::Ok);render();
++  check(!pomoSelectingTask && selectedTaskTypeIndex==3 && current_pomo_task_type=="General",
++        "OK on initial General confirms General");
++  resetFixture();enter(MODE_POMODORO);tft.clearLog();press(KeyEvent::Select);render();
++  check(controlFocus==0 && selectedTaskTypeIndex==3 && current_pomo_task_type=="General" &&
++        pomoSelectingTask && tft.fullClears==0,"General -> Coding focus does not confirm or clear screen");
++  press(KeyEvent::Select);clockRoundTrip();
++  check(controlFocus==1 && pomoSelectingTask,"task focus survives MODE round trip");
++  press(KeyEvent::Ok);render();
++  check(current_pomo_task_type=="Reading" && selectedTaskTypeIndex==1 && controlFocus==2,
++        "OK confirms Reading and opens Pomodoro at Start");
++  press(KeyEvent::Ok);check(pomoRunning,"OK on Start starts");
++  press(KeyEvent::Select);
++  check(controlFocus==3 && pomoRunning && cancelledSends==0,"SELECT on running Pomodoro only focuses Reset");
++  press(KeyEvent::Select);press(KeyEvent::Ok);
++  check(controlFocus==0 && pomoRunning && pomoWorkDuration==1800 && pomoTime==1500,
++        "OK on +5m never toggles Start/Pause");
++  press(KeyEvent::Select);press(KeyEvent::Ok);
++  check(pomoWorkDuration==1500 && pomoRunning,"OK on -5m acts on duration only");
++  press(KeyEvent::Select);press(KeyEvent::Ok);
++  check(!pomoRunning && pauseCount==1,"OK on Pause pauses once");
++  setControlFocus(0);pomoWorkDuration=5400;press(KeyEvent::Ok);
++  check(pomoWorkDuration==5400,"+5m has a 90 minute limit");
++  setControlFocus(1);pomoWorkDuration=300;press(KeyEvent::Ok);
++  check(pomoWorkDuration==300,"-5m has a 5 minute limit");
++  pomoTime=250;setControlFocus(3);press(KeyEvent::Ok);render();
++  check(pomoSelectingTask && !pomoRunning && cancelledSends==1 && controlFocus==1,
++        "Reset ends session once and preserves previous task focus");
++
++  resetFixture();enter(MODE_TIMER);setControlFocus(7);press(KeyEvent::Select);
++  check(controlFocus==0 && timerSelecting && !timerRunning,"preset SELECT wraps without starting");
++  setControlFocus(2);clockRoundTrip();
++  check(controlFocus==2 && timerSelecting,"preset focus survives screen changes");
++  press(KeyEvent::Ok);render();
++  check(timerSeconds==30 && selectedTimerPreset==2 && timerRunning && controlFocus==0,
++        "OK starts the focused preset");
++  press(KeyEvent::Ok);check(!timerRunning,"timer Pause pauses");
++  press(KeyEvent::Ok);check(timerRunning,"timer Resume resumes");
++  press(KeyEvent::Select);clockRoundTrip();
++  check(controlFocus==1 && timerRunning,"timer Stop focus and running state survive round trip");
++  press(KeyEvent::Ok);render();
++  check(timerSelecting && !timerRunning && controlFocus==2,"Stop returns to the same preset focus");
++
++  resetFixture();enter(MODE_BLUETOOTH);press(KeyEvent::Select);
++  check(controlFocus==-1 && focusByScreen[5]==0 && beepCalls==0,"SELECT is inert on disconnected Bluetooth");
++  press(KeyEvent::Ok);check(a2dp_sink.playCalls==0,"OK is inert on disconnected Bluetooth");
++  a2dp_sink.connected=true;press(KeyEvent::Ok);press(KeyEvent::Select);press(KeyEvent::Ok);
++  press(KeyEvent::Select);press(KeyEvent::Ok);clockRoundTrip();
++  check(a2dp_sink.prevCalls==1 && a2dp_sink.playCalls==1 && a2dp_sink.nextCalls==1 && controlFocus==2,
++        "Bluetooth PREV/PLAY/NEXT execute only on OK and keep focus");
++  press(KeyEvent::Select);check(controlFocus==0,"Bluetooth SELECT wraps");
++
++  // Actual touch hit testing and physical keys share action implementations.
++  resetFixture();enter(MODE_POMODORO);handleTouchAt(240,180);render();
++  check(current_pomo_task_type=="General" && controlFocus==2,"touch General uses the confirmation action");
++  handleTouchAt(250,35);check(pomoWorkDuration==1800 && controlFocus==0 && !pomoRunning,
++                           "touch +5m updates focus and duration without starting");
++  handleTouchAt(250,90);check(pomoWorkDuration==1500 && controlFocus==1,"touch -5m matches OK");
++  handleTouchAt(250,150);check(pomoRunning && controlFocus==2,"touch Start matches OK");
++  handleTouchAt(250,205);render();
++  check(pomoSelectingTask && cancelledSends==1,"touch Reset matches OK and queues cancellation");
++  enter(MODE_TIMER);handleTouchAt(180,70);render();
++  check(selectedTimerPreset==2 && timerSeconds==30 && timerLastTick==nowMs && timerRunning,
++        "touch preset matches OK including timestamp and confirmed index");
++  handleTouchAt(70,180);check(!timerRunning && controlFocus==0,"touch Pause matches OK");
++  handleTouchAt(70,180);check(timerRunning,"touch Resume matches OK");
++  handleTouchAt(220,180);render();check(timerSelecting && controlFocus==2,"touch Stop preserves preset focus");
++  enter(MODE_BLUETOOTH);a2dp_sink.connected=true;handleButtons();
++  handleTouchAt(40,180);handleTouchAt(150,180);handleTouchAt(260,180);
++  check(a2dp_sink.prevCalls==1 && a2dp_sink.playCalls==1 && a2dp_sink.nextCalls==1,
++        "touch Bluetooth actions match OK");
++  handleTouchAt(20,235);check(currentState==MODE_CLOCK,"touch MODE footer uses same navigation");
++  handleTouchAt(150,235);check(controlFocus==1 && currentThemeId==0,"touch SELECT footer only moves focus");
++  handleTouchAt(280,235);check(currentThemeId==1,"touch OK footer confirms focus");
++
++  // Both clocks continue even when only Clock or Bluetooth is rendered.
++  resetFixture();pomoSelectingTask=timerSelecting=false;pomoRunning=timerRunning=true;
++  pomoTime=timerSeconds=10;pomoInitialTime=timerInitial=10;
++  nowMs=4500;updateBackgroundTimers();
++  check(pomoTime==7 && timerSeconds==7 && currentState==MODE_CLOCK &&
++        pomoLastTick==4000 && timerLastTick==4000,"both counters run in background with millisecond remainder");
++  enter(MODE_BLUETOOTH);nowMs=7000;updateBackgroundTimers();
++  check(pomoTime==4 && timerSeconds==4,"both counters catch up while viewing Bluetooth");
++  const int beforeDraw=pomoTime;enter(MODE_POMODORO);runPomodoroMode();
++  enter(MODE_TIMER);runTimerMode();
++  check(pomoTime==beforeDraw && timerSeconds==4,"renderers never tick counters twice");
++  pomoRunning=false;nowMs=11000;updateBackgroundTimers();
++  const int beepsAtFinish=beepCalls;
++  check(timerFinished && !timerRunning && timerSeconds==0,"timer finishes at zero in background, without extra second");
++  nowMs=12000;updateBackgroundTimers();
++  check(beepCalls==beepsAtFinish,"timer completion beep is emitted once");
++  stateChanged=true;runTimerMode();tft.clearLog();runTimerMode();
++  check(tft.fills.empty(),"finished timer does not flicker by repainting every loop");
++
++  resetFixture();pomoSelectingTask=false;pomoRunning=true;pomoTime=pomoInitialTime=2;
++  pomoWorkDuration=4;pomoBreakDuration=3;nowMs=7000;updateBackgroundTimers();
++  check(pomoPhase==PHASE_WORK && pomoTime==3 && pomoSessionCount==1 && completedSends==1 &&
++        currentState==MODE_CLOCK,"background catch-up crosses work/break boundaries and sends one completed session");
++  resetFixture();pomoSelectingTask=false;pomoRunning=true;pomoTime=1;pomoSessionCount=3;
++  pomoLongBreakDuration=7;nowMs=2000;updateBackgroundTimers();
++  check(pomoPhase==PHASE_LONG_BREAK && pomoTime==7 && completedSends==1,"fourth background session enters long break");
++
++  resetFixture();enter(MODE_POMODORO);press(KeyEvent::Ok);press(KeyEvent::Ok);
++  nowMs=1400;press(KeyEvent::Ok);nowMs=6400;updateBackgroundTimers();
++  check(pomoTime==1500 && !pomoRunning,"paused Pomodoro stays paused in background");
++  press(KeyEvent::Ok);nowMs=7000;updateBackgroundTimers();
++  check(pomoTime==1499,"Pomodoro resume preserves 400 ms elapsed before pause");
++  resetFixture();enter(MODE_TIMER);press(KeyEvent::Ok);nowMs=1400;press(KeyEvent::Ok);
++  nowMs=6400;updateBackgroundTimers();check(timerSeconds==10,"paused Timer does not tick");
++  press(KeyEvent::Ok);nowMs=7000;updateBackgroundTimers();
++  check(timerSeconds==9,"Timer resume preserves partial second");
++  resetFixture();pomoSelectingTask=timerSelecting=false;pomoRunning=timerRunning=true;
++  pomoTime=timerSeconds=5;pomoLastTick=timerLastTick=0xffffff00u;nowMs=0xab8u;
++  updateBackgroundTimers();check(pomoTime==2 && timerSeconds==2,"both background clocks handle millis rollover");
++
++  for(KeyEvent event: {KeyEvent::Mode,KeyEvent::Select,KeyEvent::Ok}) {
++    resetFixture();syncControlFocus();setControlFocus(1);isAlarmActive=notifActive=true;
++    keys.push_back(event);keys.push_back(KeyEvent::Ok);handleButtons();
++    check(currentState==MODE_CLOCK && currentThemeId==0 && controlFocus==1 &&
++          !isAlarmActive && !notifActive && silenceCalls==1 && beepCalls==0 && keys.empty(),
++          "first physical contact only dismisses alert and silences buzzer");
++  }
++  resetFixture();notifActive=true;handleTouchAt(20,235);
++  check(currentState==MODE_CLOCK && !notifActive && silenceCalls==1,"first touch only dismisses notification");
++  handleTouchAt(20,235);check(currentState==MODE_POMODORO,"next touch can change screen after dismissal");
++  resetFixture();pomoSelectingTask=timerSelecting=false;pomoRunning=timerRunning=true;
++  pomoTime=timerSeconds=5;notifActive=true;nowMs=3000;updateBackgroundTimers();
++  check(pomoTime==3 && timerSeconds==3 && notifActive,"notifications do not pause background timers");
++  printf("Navigation checks: %d, failures: %d\n",checks,failures);
++  return failures?1:0;
++}
+--- a/test/extract_navigation.ps1
++++ b/test/extract_navigation.ps1
+@@ -0,0 +1,23 @@
++# Compile the actual sketch handlers in the host test, with hardware mocked.
++# Each selected function ends with a closing brace at column zero.
++$projectRoot = Split-Path -Parent $PSScriptRoot
++$sketch = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'src/Esp32Pj.ino'))
++$functions = @('currentControlScreen', 'currentControlCount', 'syncControlFocus',
++  'setControlFocus', 'dismissInputAlert', 'activateFocusedControl',
++  'handleNavigationEvent', 'handleButtons', 'drawNavigationHelp', 'drawControlFocus',
++  'handleTouchAt', 'updateBackgroundTimers', 'updateSelectionOutline',
++  'resetPomodoro', 'advancePomoPhase', 'resetTimerToSelection',
++  'drawTimerSelectGUI', 'drawTimerStartPauseButton', 'drawTimerRunGUI', 'runTimerMode',
++  'drawTaskSelectGUI', 'drawPomodoroGUI', 'drawPomodoroStartPauseButton',
++  'runPomodoroMode', 'phaseColor', 'phaseLabel')
++$blocks = foreach ($name in $functions) {
++  $match = [regex]::Match($sketch, '(?ms)^(?:void|bool|int|uint16_t|const char\*) ' + $name + '\([^\r\n]*\)\s*\{.*?^}')
++  if (!$match.Success) {
++    throw "Missing production function: $name"
++  }
++  $match.Value
++}
++$declarations = foreach ($block in $blocks) { $block.Substring(0,$block.IndexOf('{')).Trim() + ';' }
++[System.IO.File]::WriteAllText((Join-Path $projectRoot '.pio/navigation_under_test.inc'),
++  (($declarations -join "`n") + "`n" + ($blocks -join "`n`n")),
++  (New-Object System.Text.UTF8Encoding($false)))
+--- a/test/run_input_tests.cmd
++++ b/test/run_input_tests.cmd
+@@ -0,0 +1,19 @@
++@call "C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat" >nul
++@if errorlevel 1 exit /b 1
++@pushd "%~dp0.."
++@if not exist .pio mkdir .pio
++@cl /nologo /EHsc /Fo.pio\input_latch_test.obj /Fe.pio\input_latch_test.exe test\input_latch_test.cpp
++@if errorlevel 1 goto failed
++@.pio\input_latch_test.exe
++@if errorlevel 1 goto failed
++@powershell -NoProfile -ExecutionPolicy Bypass -File test\extract_navigation.ps1
++@if errorlevel 1 goto failed
++@cl /nologo /EHsc /Fo.pio\navigation_test.obj /Fe.pio\navigation_test.exe test\navigation_test.cpp
++@if errorlevel 1 goto failed
++@.pio\navigation_test.exe
++@if errorlevel 1 goto failed
++@popd
++@exit /b 0
++:failed
++@popd
++@exit /b 1

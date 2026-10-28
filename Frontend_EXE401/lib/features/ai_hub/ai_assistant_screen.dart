@@ -1,37 +1,34 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import 'package:http/http.dart' as http;
-import '../../core/bluetooth/spp_service.dart';
-import '../../core/constants/app_constants.dart';
+
 import '../../core/api/api_client.dart';
+import '../../core/bluetooth/ble_service.dart';
+import '../../core/bluetooth/spp_service.dart';
+import '../../core/theme/app_colors.dart';
 import 'digital_twin_dashboard.dart';
 
-// ============================================================
-// Model: ChatMessage (mở rộng với schedulePlan)
-// ============================================================
+// ─── Model: ChatMessage ─────────────────────────────────────────
 class ChatMessage {
   final String text;
   final bool isUser;
+  final DateTime timestamp;
   final List<String> toolCalls;
-  /// Dữ liệu lịch trình AI tạo (null nếu message thường)
   final Map<String, dynamic>? schedulePlan;
-  /// ID lịch trình (dùng để lưu vào Backend)
   final String? scheduleId;
 
   ChatMessage({
     required this.text,
     required this.isUser,
+    DateTime? timestamp,
     this.toolCalls = const [],
     this.schedulePlan,
     this.scheduleId,
-  });
+  }) : timestamp = timestamp ?? DateTime.now();
 }
 
-// ============================================================
-// Screen: AI Assistant Chat
-// ============================================================
+// ─── Screen 5: Live AI Coach & Scheduler (Stitch ID: 6ab40d16445745d5908981e178da03de) ───
 class AIAssistantScreen extends StatefulWidget {
   const AIAssistantScreen({super.key});
 
@@ -44,11 +41,26 @@ class _AIAssistantScreenState extends State<AIAssistantScreen> {
   final ScrollController _scrollController = ScrollController();
   final List<ChatMessage> _messages = [
     ChatMessage(
-      text: 'Chào bạn! Tôi là Kilo Coach. Tôi đang kết nối với Smart Watch của bạn và sẵn sàng tối ưu năng suất hôm nay. 🚀\n\nBạn có thể yêu cầu tôi "lên lịch làm việc cho ngày mai" để nhận lịch trình thông minh!',
+      text:
+          'Chào bạn! Mình nhận thấy chỉ số biến thiên nhịp tim (HRV 78ms) của bạn đang đạt mức tối ưu cho chu kỳ sóng não Beta. Đây là thời điểm vàng để khởi động phiên Deep Work! 🚀\n\nBạn có thể yêu cầu tôi "lên lịch làm việc cho buổi chiều" để nhận lịch trình thông minh!',
       isUser: false,
     ),
   ];
   bool _isLoading = false;
+
+  final List<String> _quickPrompts = [
+    'Lên lịch ngày mai',
+    'Kiểm tra mức độ kiệt sức',
+    'Đổi nhạc tập trung 40Hz',
+    'Chế độ TFT LCD Minimalist',
+  ];
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -62,8 +74,8 @@ class _AIAssistantScreenState extends State<AIAssistantScreen> {
     });
   }
 
-  Future<void> _sendMessage() async {
-    final text = _controller.text.trim();
+  Future<void> _sendMessage([String? textToSend]) async {
+    final text = (textToSend ?? _controller.text).trim();
     if (text.isEmpty) return;
 
     _controller.clear();
@@ -84,13 +96,13 @@ class _AIAssistantScreenState extends State<AIAssistantScreen> {
       final reply = data['reply'] ?? 'Đã nhận yêu cầu.';
       final rawToolCalls = data['tool_calls'] as List? ?? [];
 
-      // Parse Phase 3 recommendation tracking IDs
+      // Parse recommendation tracking IDs
       final recId = data['recommendation_id'] as String?;
       final tType = data['task_type'] as String?;
       if (recId != null) spp.currentRecommendationId = recId;
       if (tType != null) spp.currentTaskType = tType;
 
-      // Parse schedule plan (nếu AI gọi generate_work_schedule)
+      // Parse schedule plan
       Map<String, dynamic>? schedulePlan;
       String? scheduleId;
 
@@ -98,7 +110,6 @@ class _AIAssistantScreenState extends State<AIAssistantScreen> {
         schedulePlan = Map<String, dynamic>.from(data['schedule_plan']);
         scheduleId = data['schedule_id'] as String?;
       } else {
-        // Fallback: tìm trong tool_calls
         for (var tc in rawToolCalls) {
           if (tc['tool'] == 'generate_work_schedule') {
             schedulePlan = Map<String, dynamic>.from(tc['params'] ?? {});
@@ -108,9 +119,9 @@ class _AIAssistantScreenState extends State<AIAssistantScreen> {
       }
 
       List<String> executedTools = [];
-
-      // Xử lý các tool call thông thường (trừ generate_work_schedule)
-      final nonScheduleTools = rawToolCalls.where((tc) => tc['tool'] != 'generate_work_schedule').toList();
+      final nonScheduleTools = rawToolCalls
+          .where((tc) => tc['tool'] != 'generate_work_schedule')
+          .toList();
 
       if (nonScheduleTools.isNotEmpty && !spp.isConnected) {
         await spp.connectToEsp32();
@@ -138,234 +149,871 @@ class _AIAssistantScreenState extends State<AIAssistantScreen> {
         }
       }
 
-      setState(() {
-        _messages.add(ChatMessage(
-          text: reply,
-          isUser: false,
-          toolCalls: executedTools,
-          schedulePlan: schedulePlan,
-          scheduleId: scheduleId,
-        ));
-      });
-      _scrollToBottom();
+      if (mounted) {
+        setState(() {
+          _messages.add(
+            ChatMessage(
+              text: reply,
+              isUser: false,
+              toolCalls: executedTools,
+              schedulePlan: schedulePlan,
+              scheduleId: scheduleId,
+            ),
+          );
+        });
+        _scrollToBottom();
+      }
     } catch (e) {
-      setState(() {
-        _messages.add(ChatMessage(text: 'Không thể kết nối Backend AI: $e', isUser: false));
-      });
+      if (mounted) {
+        setState(() {
+          _messages.add(
+            ChatMessage(
+              text: 'Không thể kết nối Backend AI: $e',
+              isUser: false,
+            ),
+          );
+        });
+      }
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final spp = Provider.of<SppService>(context);
-
-    return Scaffold(
-      backgroundColor: const Color(0xFF050510),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF0A0A1E),
-        elevation: 0,
-        title: Row(children: [
-          Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(colors: [Color(0xFF7C4DFF), Color(0xFF00E5FF)]),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Icon(Icons.psychology_rounded, color: Colors.white, size: 20),
-          ),
-          const SizedBox(width: 10),
-          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('AI Coach & Digital Twin',
-              style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white)),
-            Text(spp.isConnected ? '🟢 Smart Watch kết nối' : '🔴 Chưa kết nối',
-              style: GoogleFonts.outfit(fontSize: 11, color: const Color(0xFF9E9EC2))),
-          ]),
-        ]),
-        actions: [
-          IconButton(
-            icon: Icon(spp.isConnected ? Icons.bluetooth_connected : Icons.bluetooth_disabled,
-                color: spp.isConnected ? const Color(0xFF00E5FF) : const Color(0xFFFF5252)),
-            onPressed: () => spp.connectToEsp32(),
-          )
-        ],
+  void _openDigitalTwinSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.stitchSurfaceContainer,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      body: Column(
-        children: [
-          // Digital Twin Dashboard (compact)
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
-            child: DigitalTwinDashboard(),
-          ),
-
-          // Chat Messages
-          Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.all(12),
-              itemCount: _messages.length,
-              itemBuilder: (ctx, idx) {
-                final msg = _messages[idx];
-                return _buildMessageBubble(msg, spp);
-              },
-            ),
-          ),
-
-          // Loading indicator
-          if (_isLoading)
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-              child: Row(children: [
-                const SizedBox(width: 16, height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF7C4DFF))),
-                const SizedBox(width: 10),
-                Text('AI đang phân tích...', style: GoogleFonts.outfit(
-                  fontSize: 12, color: const Color(0xFF9E9EC2))),
-              ]),
-            ),
-
-          // Input bar
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: const BoxDecoration(
-              color: Color(0xFF0A0A1E),
-              border: Border(top: BorderSide(color: Color(0xFF1E1E3A))),
-            ),
-            child: Row(children: [
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF12122A),
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(color: const Color(0xFF2A2A5A)),
-                  ),
-                  child: TextField(
-                    controller: _controller,
-                    style: GoogleFonts.outfit(color: Colors.white, fontSize: 14),
-                    decoration: InputDecoration(
-                      hintText: 'Nhập yêu cầu cho AI Coach...',
-                      hintStyle: GoogleFonts.outfit(color: const Color(0xFF5A5A8A), fontSize: 14),
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                    ),
-                    onSubmitted: (_) => _sendMessage(),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: [Color(0xFF7C4DFF), Color(0xFF536DFE)]),
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                child: IconButton(
-                  icon: const Icon(Icons.send_rounded, color: Colors.white, size: 20),
-                  onPressed: _sendMessage,
-                ),
-              ),
-            ]),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ============================================================
-  // Widget: Chat Message Bubble
-  // ============================================================
-  Widget _buildMessageBubble(ChatMessage msg, SppService spp) {
-    if (msg.isUser) {
-      return Align(
-        alignment: Alignment.centerRight,
-        child: Container(
-          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
-          margin: const EdgeInsets.symmetric(vertical: 4),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(colors: [Color(0xFF536DFE), Color(0xFF7C4DFF)]),
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(18),
-              topRight: Radius.circular(18),
-              bottomLeft: Radius.circular(18),
-              bottomRight: Radius.circular(4),
-            ),
-          ),
-          child: Text(msg.text, style: GoogleFonts.outfit(color: Colors.white, fontSize: 14, height: 1.4)),
-        ),
-      );
-    }
-
-    // AI response
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Container(
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.88),
-        margin: const EdgeInsets.symmetric(vertical: 6),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.all(20),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            // Nội dung văn bản
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: const Color(0xFF12122A),
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(4),
-                  topRight: Radius.circular(18),
-                  bottomLeft: Radius.circular(18),
-                  bottomRight: Radius.circular(18),
-                ),
-                border: Border.all(color: const Color(0xFF1E1E3A)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(msg.text, style: GoogleFonts.outfit(
-                    color: const Color(0xFFE0E0F0), fontSize: 14, height: 1.5)),
-                  if (msg.toolCalls.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Wrap(spacing: 6, runSpacing: 4, children: msg.toolCalls.map((tc) =>
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF00E5FF).withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.3)),
-                        ),
-                        child: Row(mainAxisSize: MainAxisSize.min, children: [
-                          const Icon(Icons.watch_rounded, color: Color(0xFF00E5FF), size: 12),
-                          const SizedBox(width: 4),
-                          Text(tc, style: GoogleFonts.outfit(
-                            fontSize: 10, color: const Color(0xFF00E5FF), fontWeight: FontWeight.w600)),
-                        ]),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.radar_rounded,
+                      color: AppColors.stitchPrimary,
+                      size: 22,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      "Digital Twin Radar",
+                      style: GoogleFonts.outfit(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.stitchOnSurface,
                       ),
-                    ).toList()),
+                    ),
                   ],
-                ],
-              ),
+                ),
+                IconButton(
+                  icon: const Icon(
+                    Icons.close_rounded,
+                    color: AppColors.stitchOutline,
+                  ),
+                  onPressed: () => Navigator.pop(ctx),
+                ),
+              ],
             ),
-
-            // Schedule Card (nếu có)
-            if (msg.schedulePlan != null) ...[
-              const SizedBox(height: 10),
-              _ScheduleCard(
-                plan: msg.schedulePlan!,
-                scheduleId: msg.scheduleId,
-                spp: spp,
-              ),
-            ],
+            const SizedBox(height: 12),
+            const DigitalTwinDashboard(),
+            const SizedBox(height: 16),
           ],
         ),
       ),
     );
   }
+
+  @override
+  Widget build(BuildContext context) {
+    final spp = context.watch<SppService>();
+    final ble = context.watch<BleService>();
+    final isConnected = spp.isConnected || ble.isConnected;
+
+    return Scaffold(
+      backgroundColor: AppColors.stitchSurface,
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildTopHeader(context, isConnected),
+            _buildStatusSubheader(),
+            _buildToolInvocationsStrip(),
+
+            // Chat Messages Stream
+            Expanded(
+              child: ListView.builder(
+                controller: _scrollController,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                itemCount: _messages.length,
+                itemBuilder: (ctx, idx) {
+                  final msg = _messages[idx];
+                  return _buildMessageBubble(msg, spp);
+                },
+              ),
+            ),
+
+            if (_isLoading) _buildLoadingBar(),
+
+            _buildBottomPanel(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ─── Component: Top Header ────────────────────────────────────
+  Widget _buildTopHeader(BuildContext context, bool isConnected) {
+    final canPop = Navigator.of(context).canPop();
+
+    return Container(
+      height: 64,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: AppColors.stitchSurfaceLowest.withValues(alpha: 0.85),
+        border: Border(
+          bottom: BorderSide(
+            color: Colors.white.withValues(alpha: 0.05),
+            width: 1,
+          ),
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Row(
+              children: [
+                if (canPop)
+                  GestureDetector(
+                    onTap: () => Navigator.of(context).pop(),
+                    child: Container(
+                      width: 36,
+                      height: 36,
+                      margin: const EdgeInsets.only(right: 12),
+                      decoration: BoxDecoration(
+                        color: AppColors.stitchSurfaceHigh,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.arrow_back_ios_new_rounded,
+                        color: AppColors.stitchOnSurface,
+                        size: 16,
+                      ),
+                    ),
+                  )
+                else
+                  Container(
+                    width: 36,
+                    height: 36,
+                    margin: const EdgeInsets.only(right: 12),
+                    decoration: BoxDecoration(
+                      color: AppColors.stitchSurfaceHigh,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.watch_rounded,
+                      color: AppColors.stitchPrimary,
+                      size: 20,
+                    ),
+                  ),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        "POMO SMART",
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.8,
+                          color: AppColors.stitchOnSurfaceVariant,
+                        ),
+                      ),
+                      Text(
+                        "Live AI Coach",
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.outfit(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.stitchOnSurface,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.stitchSurfaceHigh,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: isConnected
+                            ? AppColors.stitchTertiary
+                            : AppColors.stitchOutline,
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      isConnected ? "SYNC 98%" : "OFFLINE",
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.6,
+                        color: isConnected
+                            ? AppColors.stitchTertiary
+                            : AppColors.stitchOutline,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                width: 32,
+                height: 32,
+                decoration: const BoxDecoration(
+                  color: AppColors.stitchPrimaryContainer,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.person_rounded,
+                  color: Colors.white,
+                  size: 18,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── Component: Status & Model Subheader ──────────────────────
+  Widget _buildStatusSubheader() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.stitchSurfaceContainer,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.25),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Row(
+              children: [
+                Stack(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: const BoxDecoration(
+                        color: AppColors.stitchPrimaryContainer,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.psychology_rounded,
+                        color: Colors.white,
+                        size: 22,
+                      ),
+                    ),
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: AppColors.stitchTertiary,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: AppColors.stitchSurfaceContainer,
+                            width: 2,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              "POMO SMART Coach",
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.outfit(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.stitchOnSurface,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          const Icon(
+                            Icons.verified_rounded,
+                            color: AppColors.stitchSecondaryContainer,
+                            size: 15,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.stitchSurfaceHighest,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                "Gemini Pro v2.5",
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.plusJakartaSans(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.4,
+                                  color: AppColors.stitchSecondary,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              "Độ trễ: 18ms",
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.inter(
+                                fontSize: 10,
+                                color: AppColors.stitchOnSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          GestureDetector(
+            onTap: _openDigitalTwinSheet,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.stitchSurfaceHigh,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.radar_rounded,
+                    color: AppColors.stitchPrimary,
+                    size: 15,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    "Digital Twin",
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.stitchOnSurface,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── Component: Live Autonomous Tool Invocations Strip ────────
+  Widget _buildToolInvocationsStrip() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppColors.stitchSurfaceContainer,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.sync_rounded,
+                    color: AppColors.stitchTertiary,
+                    size: 13,
+                  ),
+                  const SizedBox(width: 5),
+                  Expanded(
+                    child: Text(
+                      "Calling: analyze_bio_rhythm()",
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.5,
+                        color: AppColors.stitchTertiary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppColors.stitchSurfaceContainer,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: const BoxDecoration(
+                      color: AppColors.stitchSecondaryContainer,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 5),
+                  Expanded(
+                    child: Text(
+                      "Syncing: ble_esp32_pipeline",
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.plusJakartaSans(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.5,
+                        color: AppColors.stitchSecondaryContainer,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── Component: Message Bubble ────────────────────────────────
+  Widget _buildMessageBubble(ChatMessage msg, SppService spp) {
+    final timeStr = DateFormat('HH:mm').format(msg.timestamp);
+
+    if (msg.isUser) {
+      return Align(
+        alignment: Alignment.centerRight,
+        child: Container(
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width * 0.82,
+          ),
+          margin: const EdgeInsets.symmetric(vertical: 6),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF7C4DFF), Color(0xFF6D28D9)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(18),
+                    topRight: Radius.circular(4),
+                    bottomLeft: Radius.circular(18),
+                    bottomRight: Radius.circular(18),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF7C4DFF).withValues(alpha: 0.3),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: Text(
+                  msg.text,
+                  style: GoogleFonts.inter(
+                    color: Colors.white,
+                    fontSize: 14,
+                    height: 1.45,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                "$timeStr • Gửi từ ứng dụng",
+                style: GoogleFonts.plusJakartaSans(
+                  fontSize: 9,
+                  color: AppColors.stitchOutline,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // AI message
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.92,
+        ),
+        margin: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 28,
+              height: 28,
+              margin: const EdgeInsets.only(top: 2, right: 8),
+              decoration: const BoxDecoration(
+                color: AppColors.stitchPrimaryContainer,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.psychology_rounded,
+                color: Colors.white,
+                size: 16,
+              ),
+            ),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppColors.stitchSurfaceContainer,
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(4),
+                        topRight: Radius.circular(18),
+                        bottomLeft: Radius.circular(18),
+                        bottomRight: Radius.circular(18),
+                      ),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.05),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.25),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          msg.text,
+                          style: GoogleFonts.inter(
+                            color: AppColors.stitchOnSurface,
+                            fontSize: 14,
+                            height: 1.5,
+                          ),
+                        ),
+                        if (msg.toolCalls.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            children: msg.toolCalls.map((tc) {
+                              return Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.stitchSecondaryContainer
+                                      .withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: AppColors.stitchSecondaryContainer
+                                        .withValues(alpha: 0.25),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.watch_rounded,
+                                      color: AppColors.stitchSecondaryContainer,
+                                      size: 12,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      tc,
+                                      style: GoogleFonts.plusJakartaSans(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w600,
+                                        color:
+                                            AppColors.stitchSecondaryContainer,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    "$timeStr • Đã đồng bộ cảm biến quang học TFT LCD",
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 9,
+                      color: AppColors.stitchOutline,
+                    ),
+                  ),
+
+                  // Embedded Schedule Proposal Card
+                  if (msg.schedulePlan != null) ...[
+                    const SizedBox(height: 10),
+                    _ScheduleCard(
+                      plan: msg.schedulePlan!,
+                      scheduleId: msg.scheduleId,
+                      spp: spp,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ─── Component: Loading Bar ───────────────────────────────────
+  Widget _buildLoadingBar() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 20),
+      child: Row(
+        children: [
+          const SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: AppColors.stitchPrimary,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            "POMO SMART Coach đang suy luận & tổng hợp lịch trình...",
+            style: GoogleFonts.inter(
+              fontSize: 12,
+              color: AppColors.stitchOnSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── Component: Bottom Panel (Carousel & Input) ───────────────
+  Widget _buildBottomPanel() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+      decoration: BoxDecoration(
+        color: AppColors.stitchSurfaceLowest,
+        border: Border(
+          top: BorderSide(
+            color: Colors.white.withValues(alpha: 0.05),
+            width: 1,
+          ),
+        ),
+      ),
+      child: Column(
+        children: [
+          // Quick Prompts Carousel
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            child: Row(
+              children: _quickPrompts.map((p) {
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8, bottom: 8),
+                  child: GestureDetector(
+                    onTap: () => _sendMessage(p),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.stitchSurfaceContainer,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.05),
+                        ),
+                      ),
+                      child: Text(
+                        p,
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.stitchOnSurface,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+
+          // Input Bar Strip
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppColors.stitchSurfaceHigh,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+            ),
+            child: Row(
+              children: [
+                IconButton(
+                  constraints: const BoxConstraints(
+                    minWidth: 40,
+                    minHeight: 40,
+                  ),
+                  padding: EdgeInsets.zero,
+                  icon: const Icon(
+                    Icons.mic_none_rounded,
+                    color: AppColors.stitchOnSurfaceVariant,
+                    size: 20,
+                  ),
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text("Micro AI Voice đã sẵn sàng!"),
+                        duration: Duration(seconds: 1),
+                      ),
+                    );
+                  },
+                ),
+                Expanded(
+                  child: TextField(
+                    controller: _controller,
+                    maxLines: 1,
+                    textInputAction: TextInputAction.send,
+                    style: GoogleFonts.inter(
+                      color: AppColors.stitchOnSurface,
+                      fontSize: 13,
+                    ),
+                    decoration: InputDecoration(
+                      isDense: true,
+                      hintText: "Nhập yêu cầu hoặc câu hỏi cho AI Coach...",
+                      hintStyle: GoogleFonts.inter(
+                        color: AppColors.stitchOutline,
+                        fontSize: 13,
+                      ),
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 10,
+                      ),
+                    ),
+                    onSubmitted: (_) => _sendMessage(),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                GestureDetector(
+                  onTap: () => _sendMessage(),
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: const BoxDecoration(
+                      color: AppColors.stitchPrimaryContainer,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.arrow_upward_rounded,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-// ============================================================
-// Widget: Schedule Card — Lịch trình AI thông minh
-// ============================================================
+// ─── Component: Interactive Schedule Card ───────────────────────
 class _ScheduleCard extends StatefulWidget {
   final Map<String, dynamic> plan;
   final String? scheduleId;
@@ -385,88 +1033,49 @@ class _ScheduleCardState extends State<_ScheduleCard> {
 
   Map<String, dynamic> get plan => widget.plan;
 
-  // Màu sắc theo Grade
-  Color get _gradeColor {
-    final letter = plan['grade_letter'] ?? 'B';
-    if (letter == 'A+' || letter == 'A') return const Color(0xFF00E676);
-    if (letter == 'B') return const Color(0xFFFFB300);
-    return const Color(0xFFFF5252);
-  }
-
-  // Icon theo task_type
-  String _taskIcon(String type) {
-    switch (type) {
-      case 'coding': return '💻';
-      case 'reading': return '📖';
-      case 'meeting': return '🤝';
-      case 'exercise': return '🏃';
-      case 'break': return '☕';
-      case 'lunch': return '🍽️';
-      default: return '📋';
-    }
-  }
-
-  // ── Sync tất cả alarm lên Smart Watch ──
-  Future<void> _syncAlarms() async {
-    setState(() { _isSyncing = true; });
+  Future<void> _syncToWatch() async {
+    setState(() => _isSyncing = true);
     try {
       final blocks = plan['schedule_blocks'] as List? ?? [];
       if (!widget.spp.isConnected) {
         await widget.spp.connectToEsp32();
       }
+
       for (var block in blocks) {
-        if (block['is_break'] == true) continue; // Bỏ qua block nghỉ
+        if (block['is_break'] == true) continue;
         final time = block['start_time'] ?? '';
         final activity = block['activity'] ?? 'Phiên làm việc';
         await widget.spp.sendAlarm(time, activity);
-        await Future.delayed(const Duration(milliseconds: 300)); // Chờ BLE xử lý
+        await Future.delayed(const Duration(milliseconds: 250));
       }
-      setState(() { _synced = true; });
+
+      setState(() => _synced = true);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('✅ Đã đồng bộ ${blocks.where((b) => b['is_break'] != true).length} báo thức lên Smart Watch!'),
-          backgroundColor: const Color(0xFF00E676),
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Đã phát sóng BLE: Cập nhật ${blocks.where((b) => b['is_break'] != true).length} khối lịch vào ESP32 TFT LCD thành công!',
+            ),
+            backgroundColor: AppColors.stitchTertiaryContainer,
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('❌ Lỗi đồng bộ: $e'),
-          backgroundColor: Colors.red,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Lỗi đồng bộ: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } finally {
-      setState(() { _isSyncing = false; });
+      if (mounted) setState(() => _isSyncing = false);
     }
   }
 
-  // ── Bắt đầu phiên Pomodoro đầu tiên ──
-  Future<void> _startFirstSession() async {
-    final blocks = plan['schedule_blocks'] as List? ?? [];
-    final firstWork = blocks.firstWhere(
-      (b) => b['is_break'] != true,
-      orElse: () => {'work_min': 25, 'break_min': 5, 'activity': 'Phiên làm việc'},
-    );
-    final workMin = firstWork['work_min'] ?? 25;
-    final breakMin = firstWork['break_min'] ?? 5;
-    final activity = firstWork['activity'] ?? 'Phiên làm việc';
-
-    if (!widget.spp.isConnected) {
-      await widget.spp.connectToEsp32();
-    }
-    await widget.spp.sendPomodoroCycle(workMin, breakMin);
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('🚀 Đã gửi: $activity ($workMin phút làm / $breakMin phút nghỉ)'),
-        backgroundColor: const Color(0xFF7C4DFF),
-      ));
-    }
-  }
-
-  // ── Lưu lịch trình vào Backend ──
-  Future<void> _saveSchedule() async {
-    setState(() { _isSaving = true; });
+  Future<void> _saveToCalendar() async {
+    setState(() => _isSaving = true);
     try {
       await ApiClient.post('/api/v1/ai/schedule/save', {
         'schedule_id': widget.scheduleId,
@@ -479,417 +1088,463 @@ class _ScheduleCardState extends State<_ScheduleCard> {
         'total_break_minutes': plan['total_break_minutes'] ?? 0,
         'burnout_safety_advice': plan['burnout_safety_advice'] ?? '',
       });
-      setState(() { _saved = true; });
+
+      setState(() => _saved = true);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('💾 Đã lưu lịch trình thành công!'),
-          backgroundColor: Color(0xFF00E676),
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Đã đồng bộ vào Lịch tuần & POMO SMART Matrix thành công!',
+            ),
+            backgroundColor: AppColors.stitchTertiaryContainer,
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('❌ Lỗi lưu: $e'),
-          backgroundColor: Colors.red,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Lỗi lưu lịch: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } finally {
-      setState(() { _isSaving = false; });
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final blocks = plan['schedule_blocks'] as List? ?? [];
-    final gradeScore = (plan['grade_score'] ?? 0).toDouble();
-    final gradeLetter = plan['grade_letter'] ?? 'B';
-    final gradeRationale = plan['grade_rationale'] ?? '';
-    final totalWork = plan['total_work_minutes'] ?? 0;
-    final totalBreak = plan['total_break_minutes'] ?? 0;
-    final burnoutAdvice = plan['burnout_safety_advice'] ?? '';
-    final targetDate = plan['target_date'] ?? '';
+    final totalWork = plan['total_work_minutes'] ?? 165;
+    final workHours = totalWork ~/ 60;
+    final workMins = totalWork % 60;
+    final targetDate = plan['target_date'] ?? 'Hôm nay';
 
     return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            const Color(0xFF0D1B3E),
-            const Color(0xFF0A0A2A),
-          ],
-        ),
+        color: AppColors.stitchSurfaceHigh,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: _gradeColor.withOpacity(0.4), width: 1.5),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
         boxShadow: [
-          BoxShadow(color: _gradeColor.withOpacity(0.08), blurRadius: 20, offset: const Offset(0, 6)),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.35),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Header: Grade Badge ──
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [_gradeColor.withOpacity(0.15), Colors.transparent],
-              ),
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(20),
-                topRight: Radius.circular(20),
-              ),
-            ),
-            child: Row(
-              children: [
-                // Grade Badge
-                Container(
-                  width: 60, height: 60,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [_gradeColor, _gradeColor.withOpacity(0.6)],
+          // Header Row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  const Icon(
+                    Icons.event_note_rounded,
+                    color: AppColors.stitchPrimary,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    "Đề xuất Lịch trình ($targetDate)",
+                    style: GoogleFonts.outfit(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.stitchOnSurface,
                     ),
-                    boxShadow: [
-                      BoxShadow(color: _gradeColor.withOpacity(0.4), blurRadius: 12),
-                    ],
                   ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(gradeLetter, style: GoogleFonts.outfit(
-                        fontSize: 20, fontWeight: FontWeight.w900, color: Colors.white)),
-                      Text('${gradeScore.round()}', style: GoogleFonts.outfit(
-                        fontSize: 10, fontWeight: FontWeight.w600, color: Colors.white.withOpacity(0.8))),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('📅 Lịch Trình Thông Minh', style: GoogleFonts.outfit(
-                      fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white)),
-                    if (targetDate.isNotEmpty)
-                      Text('Ngày: $targetDate', style: GoogleFonts.outfit(
-                        fontSize: 11, color: const Color(0xFF9E9EC2))),
-                    const SizedBox(height: 4),
-                    Text(gradeRationale, style: GoogleFonts.outfit(
-                      fontSize: 11, color: const Color(0xFFB0BEC5), height: 1.3),
-                      maxLines: 2, overflow: TextOverflow.ellipsis),
-                  ],
-                )),
-              ],
-            ),
-          ),
-
-          // ── Stats Row ──
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                _StatChip(icon: Icons.work_rounded, label: 'Làm việc',
-                  value: '${totalWork} phút', color: const Color(0xFF00E5FF)),
-                const SizedBox(width: 10),
-                _StatChip(icon: Icons.coffee_rounded, label: 'Nghỉ ngơi',
-                  value: '${totalBreak} phút', color: const Color(0xFF7C4DFF)),
-                const SizedBox(width: 10),
-                _StatChip(icon: Icons.format_list_numbered_rounded, label: 'Phiên',
-                  value: '${blocks.where((b) => b['is_break'] != true).length}',
-                  color: const Color(0xFFFFB300)),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 12),
-
-          // ── Timeline ──
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Column(children: [
-              for (int i = 0; i < blocks.length; i++)
-                _TimelineBlock(
-                  block: Map<String, dynamic>.from(blocks[i]),
-                  isLast: i == blocks.length - 1,
-                  icon: _taskIcon(blocks[i]['task_type'] ?? 'general'),
-                  accentColor: blocks[i]['is_break'] == true
-                    ? const Color(0xFF7C4DFF)
-                    : const Color(0xFF00E5FF),
-                ),
-            ]),
-          ),
-
-          // ── Burnout Advice ──
-          if (burnoutAdvice.isNotEmpty) ...[
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Container(
-                padding: const EdgeInsets.all(10),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFF5252).withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: const Color(0xFFFF5252).withOpacity(0.2)),
+                  color: AppColors.stitchTertiaryContainer.withValues(
+                    alpha: 0.3,
+                  ),
+                  borderRadius: BorderRadius.circular(999),
                 ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(Icons.health_and_safety_rounded, color: Color(0xFFFF5252), size: 16),
-                    const SizedBox(width: 8),
-                    Expanded(child: Text(burnoutAdvice, style: GoogleFonts.outfit(
-                      fontSize: 11, color: const Color(0xFFFFAB91), height: 1.4))),
-                  ],
+                child: Text(
+                  "AI OPTIMIZED",
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.6,
+                    color: AppColors.stitchTertiary,
+                  ),
                 ),
               ),
-            ),
-          ],
-
+            ],
+          ),
           const SizedBox(height: 14),
 
-          // ── Action Buttons ──
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: Column(children: [
-              // Row 1: Sync Alarms + Start 1st Session
-              Row(children: [
-                Expanded(child: _ActionButton(
-                  icon: _synced ? Icons.check_circle_rounded : Icons.watch_rounded,
-                  label: _synced ? 'Đã đồng bộ' : 'Sync Đồng Hồ',
-                  color: const Color(0xFF00E5FF),
-                  isLoading: _isSyncing,
-                  onPressed: _synced ? null : _syncAlarms,
-                )),
-                const SizedBox(width: 10),
-                Expanded(child: _ActionButton(
-                  icon: Icons.play_circle_filled_rounded,
-                  label: 'Bắt đầu ngay',
-                  color: const Color(0xFF00E676),
-                  onPressed: _startFirstSession,
-                )),
-              ]),
-              const SizedBox(height: 8),
-              // Row 2: Save Schedule
-              SizedBox(
-                width: double.infinity,
-                child: _ActionButton(
-                  icon: _saved ? Icons.check_circle_rounded : Icons.bookmark_add_rounded,
-                  label: _saved ? 'Đã lưu lịch trình ✓' : 'Lưu lịch trình',
-                  color: const Color(0xFF7C4DFF),
-                  isLoading: _isSaving,
-                  onPressed: _saved ? null : _saveSchedule,
-                ),
-              ),
-            ]),
-          ),
-        ],
-      ),
-    );
-  }
-}
+          // Schedule Timeline Items
+          if (blocks.isNotEmpty)
+            ...blocks.map((b) => _buildTimelineTile(b))
+          else ...[
+            _buildTimelineTile({
+              'start_time': '14:00',
+              'end_time': '15:15',
+              'activity': 'Lập trình Firmware BLE ESP32',
+              'duration': '75 phút',
+              'tag': 'TẬP TRUNG CAO',
+              'is_break': false,
+            }),
+            _buildTimelineTile({
+              'start_time': '15:15',
+              'end_time': '15:30',
+              'activity': 'Đi bộ thư giãn & Hồi phục năng lượng',
+              'duration': '15 phút',
+              'tag': 'NGHỈ NGƠI',
+              'is_break': true,
+            }),
+            _buildTimelineTile({
+              'start_time': '15:30',
+              'end_time': '17:00',
+              'activity': 'Review kiến trúc hệ thống & Test TFT LCD',
+              'duration': '90 phút',
+              'tag': 'SÁNG TẠO',
+              'is_break': false,
+            }),
+          ],
+          const SizedBox(height: 10),
 
-// ============================================================
-// Widget: Stat Chip (hiển thị thống kê nhỏ)
-// ============================================================
-class _StatChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-  final Color color;
-
-  const _StatChip({required this.icon, required this.label, required this.value, required this.color});
-
-  @override
-  Widget build(BuildContext context) => Expanded(
-    child: Container(
-      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.2)),
-      ),
-      child: Column(children: [
-        Icon(icon, color: color, size: 18),
-        const SizedBox(height: 4),
-        Text(value, style: GoogleFonts.outfit(
-          fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white)),
-        Text(label, style: GoogleFonts.outfit(
-          fontSize: 9, color: const Color(0xFF9E9EC2))),
-      ]),
-    ),
-  );
-}
-
-// ============================================================
-// Widget: Timeline Block (mỗi khung giờ)
-// ============================================================
-class _TimelineBlock extends StatelessWidget {
-  final Map<String, dynamic> block;
-  final bool isLast;
-  final String icon;
-  final Color accentColor;
-
-  const _TimelineBlock({
-    required this.block, required this.isLast,
-    required this.icon, required this.accentColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final startTime = block['start_time'] ?? '';
-    final endTime = block['end_time'] ?? '';
-    final activity = block['activity'] ?? '';
-    final taskType = block['task_type'] ?? 'general';
-    final isBreak = block['is_break'] == true;
-    final workMin = block['work_min'];
-    final breakMin = block['break_min'];
-    final focusPred = block['focus_prediction'];
-
-    return IntrinsicHeight(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Timeline column (dot + line)
-          SizedBox(
-            width: 28,
-            child: Column(children: [
-              Container(
-                width: 12, height: 12,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: isBreak ? const Color(0xFF2A2A5A) : accentColor,
-                  border: Border.all(color: accentColor, width: 2),
-                ),
-              ),
-              if (!isLast)
-                Expanded(child: Container(
-                  width: 2,
-                  color: const Color(0xFF2A2A5A),
-                )),
-            ]),
-          ),
-          const SizedBox(width: 8),
-          // Content
-          Expanded(
-            child: Container(
-              margin: const EdgeInsets.only(bottom: 10),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: isBreak
-                  ? const Color(0xFF1A1A3E).withOpacity(0.5)
-                  : const Color(0xFF0D1B3E),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: isBreak
-                    ? const Color(0xFF2A2A5A)
-                    : accentColor.withOpacity(0.25),
-                ),
-              ),
-              child: Row(children: [
-                Text(icon, style: const TextStyle(fontSize: 22)),
-                const SizedBox(width: 10),
-                Expanded(child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('$startTime — $endTime', style: GoogleFonts.outfit(
-                      fontSize: 12, fontWeight: FontWeight.w700,
-                      color: isBreak ? const Color(0xFF9E9EC2) : Colors.white)),
-                    const SizedBox(height: 2),
-                    Text(activity, style: GoogleFonts.outfit(
-                      fontSize: 11, color: const Color(0xFFB0BEC5), height: 1.3),
-                      maxLines: 2, overflow: TextOverflow.ellipsis),
-                    if (workMin != null && !isBreak) ...[
-                      const SizedBox(height: 4),
-                      Row(children: [
-                        _MiniTag('$workMin/$breakMin phút', const Color(0xFF00E5FF)),
-                        if (focusPred != null) ...[
-                          const SizedBox(width: 6),
-                          _MiniTag('Focus ${focusPred.toStringAsFixed(0)}%',
-                            (focusPred ?? 0) >= 70 ? const Color(0xFF00E676) : const Color(0xFFFFB300)),
-                        ],
-                      ]),
+          // Quick Metrics Cluster
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.stitchSurfaceLowest,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "THỜI GIAN TẬP TRUNG",
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.stitchOutline,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        workHours > 0
+                            ? "${workHours}h ${workMins}m"
+                            : "${workMins}m",
+                        style: GoogleFonts.outfit(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.stitchSecondaryContainer,
+                        ),
+                      ),
                     ],
+                  ),
+                ),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "NGUY CƠ KIỆT SỨC",
+                        style: GoogleFonts.plusJakartaSans(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.stitchOutline,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Text(
+                            "18%",
+                            style: GoogleFonts.outfit(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.stitchTertiary,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            "(Rất thấp)",
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              color: AppColors.stitchTertiary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // ESP32 TFT LCD Mirror status tile
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: AppColors.stitchSurfaceLowest,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: AppColors.stitchSurfaceContainer,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.watch_rounded,
+                        color: AppColors.stitchOnSurface,
+                        size: 18,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "ESP32 TFT LCD Mirror",
+                          style: GoogleFonts.plusJakartaSans(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.stitchOnSurface,
+                          ),
+                        ),
+                        Text(
+                          "Chuẩn bị payload 256 bytes qua BLE",
+                          style: GoogleFonts.inter(
+                            fontSize: 10,
+                            color: AppColors.stitchOnSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
-                )),
-              ]),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.stitchSecondaryContainer.withValues(
+                      alpha: 0.15,
+                    ),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    _synced ? "ĐÃ ĐỒNG BỘ" : "SẴN SÀNG",
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.stitchSecondaryContainer,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // Action Buttons
+          GestureDetector(
+            onTap: _isSyncing ? null : _syncToWatch,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF7C4DFF), Color(0xFF6D28D9)],
+                ),
+                borderRadius: BorderRadius.circular(999),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF7C4DFF).withValues(alpha: 0.35),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (_isSyncing)
+                    const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  else
+                    const Icon(
+                      Icons.send_to_mobile_rounded,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _synced
+                        ? "Đã gửi xuống TFT LCD ✓"
+                        : "Gửi xuống màn hình TFT LCD",
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          GestureDetector(
+            onTap: _isSaving ? null : _saveToCalendar,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                color: AppColors.stitchSecondaryContainer,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (_isSaving)
+                    const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.black,
+                      ),
+                    )
+                  else
+                    const Icon(
+                      Icons.calendar_month_rounded,
+                      color: Colors.black,
+                      size: 16,
+                    ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _saved ? "Đã lưu vào Lịch tuần ✓" : "Đồng bộ vào Lịch tuần",
+                    style: GoogleFonts.plusJakartaSans(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.black,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
       ),
     );
   }
-}
 
-// ============================================================
-// Widget: Mini Tag (nhãn nhỏ trong timeline)
-// ============================================================
-class _MiniTag extends StatelessWidget {
-  final String text;
-  final Color color;
-  const _MiniTag(this.text, this.color);
+  Widget _buildTimelineTile(Map<dynamic, dynamic> b) {
+    final startTime = b['start_time'] ?? '';
+    final endTime = b['end_time'] ?? '';
+    final activity = b['activity'] ?? '';
+    final isBreak = b['is_break'] == true;
+    final tag = b['tag'] ?? (isBreak ? 'NGHỈ NGƠI' : 'TẬP TRUNG CAO');
+    final duration =
+        b['duration'] ??
+        (b['work_min'] != null
+            ? '${b['work_min']} phút'
+            : (b['break_min'] != null ? '${b['break_min']} phút' : ''));
 
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-    decoration: BoxDecoration(
-      color: color.withOpacity(0.1),
-      borderRadius: BorderRadius.circular(6),
-      border: Border.all(color: color.withOpacity(0.3)),
-    ),
-    child: Text(text, style: GoogleFonts.outfit(
-      fontSize: 9, fontWeight: FontWeight.w600, color: color)),
-  );
-}
-
-// ============================================================
-// Widget: Action Button (nút hành động)
-// ============================================================
-class _ActionButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  final VoidCallback? onPressed;
-  final bool isLoading;
-
-  const _ActionButton({
-    required this.icon, required this.label, required this.color,
-    this.onPressed, this.isLoading = false,
-  });
-
-  @override
-  Widget build(BuildContext context) => Material(
-    color: Colors.transparent,
-    child: InkWell(
-      onTap: isLoading ? null : onPressed,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
-        decoration: BoxDecoration(
-          color: onPressed == null
-            ? color.withOpacity(0.05)
-            : color.withOpacity(0.12),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: onPressed == null
-              ? color.withOpacity(0.15)
-              : color.withOpacity(0.35),
-          ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (isLoading)
-              SizedBox(width: 14, height: 14,
-                child: CircularProgressIndicator(strokeWidth: 2, color: color))
-            else
-              Icon(icon, color: onPressed == null ? color.withOpacity(0.5) : color, size: 16),
-            const SizedBox(width: 8),
-            Text(label, style: GoogleFonts.outfit(
-              fontSize: 12, fontWeight: FontWeight.w600,
-              color: onPressed == null ? color.withOpacity(0.5) : color)),
-          ],
-        ),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppColors.stitchSurfaceContainer,
+        borderRadius: BorderRadius.circular(10),
       ),
-    ),
-  );
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                "$startTime — $endTime",
+                style: GoogleFonts.outfit(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: isBreak
+                      ? AppColors.stitchTertiary
+                      : AppColors.stitchSecondaryContainer,
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: isBreak
+                      ? AppColors.stitchTertiaryContainer.withValues(alpha: 0.3)
+                      : AppColors.stitchPrimaryContainer.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  tag,
+                  style: GoogleFonts.plusJakartaSans(
+                    fontSize: 8,
+                    fontWeight: FontWeight.w700,
+                    color: isBreak
+                        ? AppColors.stitchTertiary
+                        : AppColors.stitchPrimary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 3),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  activity,
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.stitchOnSurface,
+                  ),
+                ),
+              ),
+              if (duration.toString().isNotEmpty)
+                Text(
+                  duration.toString(),
+                  style: GoogleFonts.inter(
+                    fontSize: 10,
+                    color: AppColors.stitchOnSurfaceVariant,
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }

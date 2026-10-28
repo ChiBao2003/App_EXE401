@@ -25,10 +25,11 @@ class MongoScheduleRepository(AbstractScheduleRepository):
             minute=doc.get("minute", 0),
             label=doc.get("label", ""),
             is_active=doc.get("is_active", True),
+            user_id=doc.get("user_id"),
         )
 
-    async def get_all(self) -> List[ScheduleEntity]:
-        cursor = self._db[COLLECTION].find()
+    async def get_all(self, user_id: str) -> List[ScheduleEntity]:
+        cursor = self._db[COLLECTION].find({"user_id": user_id})
         result = []
         async for doc in cursor:
             result.append(self._to_entity(doc))
@@ -41,10 +42,11 @@ class MongoScheduleRepository(AbstractScheduleRepository):
             "minute": entity.minute,
             "label": entity.label,
             "is_active": entity.is_active,
+            "user_id": entity.user_id,
         }
         result = await self._db[COLLECTION].insert_one(doc)
         return str(result.inserted_id)
 
-    async def delete(self, item_id: str) -> bool:
-        result = await self._db[COLLECTION].delete_one({"_id": ObjectId(item_id)})
+    async def delete(self, item_id: str, user_id: str) -> bool:
+        result = await self._db[COLLECTION].delete_one({"_id": ObjectId(item_id), "user_id": user_id})
         return result.deleted_count > 0

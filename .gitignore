@@ -6,6 +6,9 @@ __pycache__/
 venv/
 ENV/
 env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # Node / Web
 node_modules/
@@ -22,10 +25,23 @@ dist/
 .pub-cache/
 .pub/
 build/
+**/flutter/ephemeral/
+local.properties
+
+# Android build cache & release signing (KHONG commit khoa ky)
+.gradle/
+.kotlin/
+.cxx/
+*.apk
+*.aab
+*.jks
+*.keystore
+key.properties
 
 # IDE & OS
 .vscode/
 .idea/
+*.iml
 *.swp
 *.swo
 .DS_Store

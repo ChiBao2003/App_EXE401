@@ -1,4 +1,4 @@
-﻿"""
+"""
 core/config.py - Cau hinh tap trung cho toan bo Backend
 Load tu file .env de de deploy, khong hardcode secrets.
 """
@@ -19,6 +19,10 @@ DATABASE_NAME: str = os.getenv("DATABASE_NAME", "Pomodoro_App")
 SECRET_KEY: str = os.getenv("SECRET_KEY", "CHANGE_ME_IN_PRODUCTION_super_secret_key_2024")
 ALGORITHM: str = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "10080"))  # 7 ngay
+GOOGLE_WEB_CLIENT_ID: str = os.getenv(
+    "GOOGLE_WEB_CLIENT_ID",
+    "3874930244-45sqv2n9btc1dr6avq428353d4vnlb2f.apps.googleusercontent.com",
+)
 
 # ============================================================
 # External APIs
@@ -37,3 +41,18 @@ MQTT_BROKER_PORT: int = int(os.getenv("MQTT_BROKER_PORT", "1883"))
 # ============================================================
 APP_ENV: str = os.getenv("APP_ENV", "development")
 DEBUG: bool = APP_ENV == "development"
+
+# Danh sach origin cho CORS, ngan cach bang dau phay. Mac dinh "*" (dev).
+# App Android native khong bi anh huong boi CORS.
+CORS_ORIGINS: list = [
+    o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()
+]
+
+# Chan khoi dong production neu quen doi SECRET_KEY mac dinh (JWT se bi gia mao duoc)
+if APP_ENV == "production" and (
+    SECRET_KEY.startswith("CHANGE_ME") or len(SECRET_KEY) < 32
+):
+    raise RuntimeError(
+        "SECRET_KEY chua duoc cau hinh an toan cho production "
+        "(can >= 32 ky tu, khac gia tri mac dinh)."
+    )

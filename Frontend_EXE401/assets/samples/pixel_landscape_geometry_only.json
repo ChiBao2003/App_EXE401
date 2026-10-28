@@ -1,0 +1,18 @@
+{
+  "title": "Pixel Landscape - Geometry Only",
+  "style": "color_rgb565",
+  "background": 65535,
+  "elements": [
+    {"t":"geometry","g":"roundrect","x":4,"y":4,"w":312,"h":232,"c":0,"f":false},
+    {"t":"geometry","g":"circle","x":28,"y":22,"w":52,"h":52,"c":65504,"f":true},
+    {"t":"geometry","g":"triangle","x":40,"y":92,"w":116,"h":64,"c":31627,"f":true},
+    {"t":"geometry","g":"triangle","x":138,"y":76,"w":144,"h":80,"c":14823,"f":true},
+    {"t":"geometry","g":"rect","x":8,"y":154,"w":304,"h":3,"c":0,"f":true},
+    {"t":"geometry","g":"rect","x":8,"y":158,"w":304,"h":64,"c":21130,"f":true},
+    {"t":"geometry","g":"rect","x":32,"y":116,"w":13,"h":91,"c":34948,"f":true},
+    {"t":"geometry","g":"circle","x":12,"y":94,"w":53,"h":53,"c":2016,"f":true},
+    {"t":"geometry","g":"rect","x":213,"y":110,"w":68,"h":5,"c":65535,"f":true},
+    {"t":"geometry","g":"rect","x":236,"y":120,"w":52,"h":4,"c":65535,"f":true},
+    {"t":"clock","x":151,"y":23,"w":156,"h":48,"c":0,"v":"@T","s":5}
+  ]
+}

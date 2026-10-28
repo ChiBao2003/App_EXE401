@@ -1,25 +1,1022 @@
 [
   {
-    "author": "Hoàng Thịnh PRO",
-    "thumbnail_url": "assets/images/market_1.png",
+    "author": "CyberMaker",
+    "thumbnail_url": "",
     "design_json": {
+      "title": "Neon Digital 20:38",
+      "style": "color_rgb565",
       "elements": [
-        {"type": "time", "format": "HH:mm", "x": 10, "y": 20, "fontSize": 64},
-        {"type": "date", "format": "dd/MM/yyyy", "x": 10, "y": 100, "fontSize": 24}
-      ]
+        {
+          "t": "clock",
+          "v": "@T",
+          "x": 75,
+          "y": 25,
+          "s": 5,
+          "c": 2016,
+          "w": 180,
+          "h": 70
+        },
+        {
+          "t": "text",
+          "v": "WED",
+          "x": 15,
+          "y": 48,
+          "s": 2,
+          "c": 2016,
+          "w": 36,
+          "h": 16
+        },
+        {
+          "t": "text",
+          "v": "MON TUE THU FRI SAT SUN",
+          "x": 15,
+          "y": 18,
+          "s": 1,
+          "c": 19000,
+          "w": 138,
+          "h": 8
+        },
+        {
+          "t": "geometry",
+          "g": "rect",
+          "x": 10,
+          "y": 115,
+          "w": 300,
+          "h": 2,
+          "c": 8456,
+          "f": true,
+          "s": 1
+        },
+        {
+          "t": "text",
+          "v": "28*C",
+          "x": 40,
+          "y": 145,
+          "s": 4,
+          "c": 65535,
+          "w": 96,
+          "h": 32
+        },
+        {
+          "t": "calendar",
+          "v": "10/23",
+          "x": 160,
+          "y": 145,
+          "s": 4,
+          "c": 65535,
+          "w": 150,
+          "h": 32
+        },
+        {
+          "t": "text",
+          "v": "ALARM 1 & 2",
+          "x": 40,
+          "y": 195,
+          "s": 1,
+          "c": 2016,
+          "w": 66,
+          "h": 8
+        }
+      ],
+      "background": 0
     },
-    "likes": 1500,
-    "timestamp": "2026-08-12T08:30:00Z"
+    "likes": 2840,
+    "timestamp": "2026-10-19T08:00:00Z"
   },
   {
-    "author": "Bé Nấm",
-    "thumbnail_url": "assets/images/market_2.png",
+    "author": "MinimalStudio",
+    "thumbnail_url": "",
     "design_json": {
+      "title": "Modern Desk Clock 12:21",
+      "style": "color_rgb565",
       "elements": [
-        {"type": "time", "format": "HH:mm", "x": 50, "y": 50, "fontSize": 72, "font": "digital"}
+        {
+          "t": "geometry",
+          "g": "rect",
+          "x": 0,
+          "y": 0,
+          "w": 320,
+          "h": 240,
+          "c": 65535,
+          "f": true,
+          "s": 1
+        },
+        {
+          "t": "clock",
+          "v": "@T",
+          "x": 15,
+          "y": 30,
+          "s": 5,
+          "c": 0,
+          "w": 200,
+          "h": 120
+        },
+        {
+          "t": "geometry",
+          "g": "line",
+          "x": 225,
+          "y": 20,
+          "w": 1,
+          "h": 200,
+          "c": 0,
+          "s": 1
+        },
+        {
+          "t": "text",
+          "v": "ALARM",
+          "x": 235,
+          "y": 25,
+          "s": 1,
+          "c": 0,
+          "w": 30,
+          "h": 8
+        },
+        {
+          "t": "text",
+          "v": "06:00",
+          "x": 235,
+          "y": 45,
+          "s": 2,
+          "c": 0,
+          "w": 60,
+          "h": 16
+        },
+        {
+          "t": "geometry",
+          "g": "line",
+          "x": 230,
+          "y": 75,
+          "w": 80,
+          "h": 1,
+          "c": 0,
+          "s": 1
+        },
+        {
+          "t": "calendar",
+          "v": "DATE 10/23",
+          "x": 235,
+          "y": 90,
+          "s": 1,
+          "c": 0,
+          "w": 85,
+          "h": 8
+        },
+        {
+          "t": "geometry",
+          "g": "line",
+          "x": 230,
+          "y": 135,
+          "w": 80,
+          "h": 1,
+          "c": 0,
+          "s": 1
+        },
+        {
+          "t": "text",
+          "v": "TEMP 28.5C",
+          "x": 235,
+          "y": 150,
+          "s": 1,
+          "c": 0,
+          "w": 60,
+          "h": 8
+        }
+      ],
+      "background": 65535
+    },
+    "likes": 1950,
+    "timestamp": "2026-10-19T09:30:00Z"
+  },
+  {
+    "author": "TftHeritage",
+    "thumbnail_url": "",
+    "design_json": {
+      "title": "Heritage Calendar",
+      "style": "color_rgb565",
+      "elements": [
+        {
+          "t": "geometry",
+          "g": "rect",
+          "x": 0,
+          "y": 0,
+          "w": 320,
+          "h": 240,
+          "c": 65535,
+          "f": true,
+          "s": 1
+        },
+        {
+          "t": "geometry",
+          "g": "rect",
+          "x": 15,
+          "y": 15,
+          "w": 110,
+          "h": 210,
+          "c": 0,
+          "f": false,
+          "s": 1
+        },
+        {
+          "t": "text",
+          "v": "[PORTRAIT]",
+          "x": 25,
+          "y": 105,
+          "s": 1,
+          "c": 0,
+          "w": 60,
+          "h": 8
+        },
+        {
+          "t": "clock",
+          "v": "@T",
+          "x": 145,
+          "y": 20,
+          "s": 5,
+          "c": 0,
+          "w": 150,
+          "h": 40
+        },
+        {
+          "t": "calendar",
+          "v": "THU 4, 19/10/2026",
+          "x": 145,
+          "y": 80,
+          "s": 1,
+          "c": 0,
+          "w": 150,
+          "h": 8
+        },
+        {
+          "t": "geometry",
+          "g": "line",
+          "x": 140,
+          "y": 105,
+          "w": 170,
+          "h": 1,
+          "c": 0,
+          "s": 1
+        },
+        {
+          "t": "text",
+          "v": "CN T2 T3 T4 T5 T6 T7",
+          "x": 145,
+          "y": 120,
+          "s": 1,
+          "c": 0,
+          "w": 120,
+          "h": 8
+        },
+        {
+          "t": "text",
+          "v": " 1  2  3  4  5  6  7",
+          "x": 145,
+          "y": 140,
+          "s": 1,
+          "c": 0,
+          "w": 120,
+          "h": 8
+        },
+        {
+          "t": "text",
+          "v": " 8  9 10 11 12 13 14",
+          "x": 145,
+          "y": 160,
+          "s": 1,
+          "c": 0,
+          "w": 120,
+          "h": 8
+        },
+        {
+          "t": "text",
+          "v": "15 16 17 18 19 20 21",
+          "x": 145,
+          "y": 180,
+          "s": 1,
+          "c": 0,
+          "w": 120,
+          "h": 8
+        },
+        {
+          "t": "text",
+          "v": "22 23 24 25 26 27 28",
+          "x": 145,
+          "y": 200,
+          "s": 1,
+          "c": 0,
+          "w": 120,
+          "h": 8
+        }
+      ],
+      "background": 65535
+    },
+    "likes": 3410,
+    "timestamp": "2026-10-19T10:15:00Z"
+  },
+  {
+    "author": "BentoTech",
+    "thumbnail_url": "",
+    "design_json": {
+      "title": "Bento Focus Dashboard",
+      "style": "color_rgb565",
+      "elements": [
+        {
+          "t": "geometry",
+          "g": "rect",
+          "x": 10,
+          "y": 10,
+          "w": 180,
+          "h": 130,
+          "c": 2047,
+          "f": false,
+          "s": 1
+        },
+        {
+          "t": "clock",
+          "v": "@T",
+          "x": 25,
+          "y": 45,
+          "s": 5,
+          "c": 2047,
+          "w": 150,
+          "h": 40
+        },
+        {
+          "t": "geometry",
+          "g": "rect",
+          "x": 200,
+          "y": 10,
+          "w": 110,
+          "h": 60,
+          "c": 64800,
+          "f": false,
+          "s": 1
+        },
+        {
+          "t": "text",
+          "v": "POMO 25M",
+          "x": 210,
+          "y": 30,
+          "s": 1,
+          "c": 64800,
+          "w": 48,
+          "h": 8
+        },
+        {
+          "t": "geometry",
+          "g": "rect",
+          "x": 200,
+          "y": 80,
+          "w": 110,
+          "h": 60,
+          "c": 2016,
+          "f": false,
+          "s": 1
+        },
+        {
+          "t": "text",
+          "v": "BAT 98%",
+          "x": 215,
+          "y": 100,
+          "s": 1,
+          "c": 2016,
+          "w": 42,
+          "h": 8
+        },
+        {
+          "t": "geometry",
+          "g": "rect",
+          "x": 10,
+          "y": 150,
+          "w": 300,
+          "h": 75,
+          "c": 65535,
+          "f": false,
+          "s": 1
+        },
+        {
+          "t": "calendar",
+          "v": "19/10/2026  TEMP: 28*C",
+          "x": 30,
+          "y": 180,
+          "s": 2,
+          "c": 65535,
+          "w": 150,
+          "h": 16
+        }
+      ],
+      "background": 0
+    },
+    "likes": 2180,
+    "timestamp": "2026-10-19T11:00:00Z"
+  },
+  {
+    "author": "AnimeStudio",
+    "thumbnail_url": "",
+    "seed_key": "anime_builtin_0",
+    "design_json": {
+      "title": "Pokemon Pikachu Edition",
+      "style": "color_rgb565",
+      "background": 65504,
+      "elements": [
+        {
+          "t": "geometry",
+          "x": 5,
+          "y": 5,
+          "w": 310,
+          "h": 230,
+          "c": 0,
+          "v": "",
+          "s": 1,
+          "g": "rect",
+          "f": false
+        },
+        {
+          "t": "geometry",
+          "x": 9,
+          "y": 9,
+          "w": 302,
+          "h": 222,
+          "c": 0,
+          "v": "",
+          "s": 1,
+          "g": "rect",
+          "f": false
+        },
+        {
+          "t": "text",
+          "x": 18,
+          "y": 18,
+          "w": 270,
+          "h": 12,
+          "c": 0,
+          "v": "PIKACHU #025",
+          "s": 1
+        },
+        {
+          "t": "geometry",
+          "x": 14,
+          "y": 38,
+          "w": 205,
+          "h": 86,
+          "c": 0,
+          "v": "",
+          "s": 1,
+          "g": "rect",
+          "f": false
+        },
+        {
+          "t": "clock",
+          "x": 20,
+          "y": 56,
+          "w": 185,
+          "h": 45,
+          "c": 0,
+          "v": "@T",
+          "s": 5
+        },
+        {
+          "t": "calendar",
+          "x": 20,
+          "y": 111,
+          "w": 180,
+          "h": 16,
+          "c": 0,
+          "v": "@d/@M/@y",
+          "s": 2
+        },
+        {
+          "t": "geometry",
+          "x": 14,
+          "y": 143,
+          "w": 205,
+          "h": 1,
+          "c": 0,
+          "v": "",
+          "s": 1,
+          "g": "rect",
+          "f": true
+        },
+        {
+          "t": "text",
+          "x": 18,
+          "y": 155,
+          "w": 204,
+          "h": 20,
+          "c": 0,
+          "v": "LV. 50 HP 120/120",
+          "s": 1
+        },
+        {
+          "t": "text",
+          "x": 18,
+          "y": 183,
+          "w": 190,
+          "h": 12,
+          "c": 0,
+          "v": "BAT 98% 28C",
+          "s": 1
+        },
+        {
+          "t": "bitmap",
+          "x": 254,
+          "y": 82,
+          "w": 48,
+          "h": 64,
+          "c": 0,
+          "v": "007c000001f0007c000003e0003e000003e0003e000007c0001f000007c0001f00000f80000f80001f00000f80001f000007c0003e000007c0003e000003e0007c000003e0007c000001f080f8000001fff9f0000000fffdf0000000ffffe00000007fffe0000000ffffc0000001ffffc0000001ffffc0000003ffffe0000003ffffe0000003ffffe0000003ffffe0000003ffffe0000007fffff000000bffffe800007fe7f3ff0000ffe7f3ff8000ffffffff8000ffffffff8001ffffffffc000ffffffff8000ffffffff8000fffc1fff80007f7fff7fc000081ffc09e000000ff800f00000008000f100000000007b00000080003f00001ffc000f00007fff001e0000ffff803c0003ffffe0f80003ffffe1e00007fffff3c0000fffffff80000fffffff00000ffffffe00000ffffff800001ffffffc00000ffffff800000ffffff800000ffffff800000ffffff8000007fffff0000003ffffe0000003ffffe0000000ffff80000000ffffc0000001dffce000000380807000000700003800",
+          "s": 1
+        }
       ]
     },
-    "likes": 842,
-    "timestamp": "2026-08-10T14:15:00Z"
+    "likes": 0,
+    "timestamp": "2026-10-19T08:00:00Z"
+  },
+  {
+    "author": "AnimeStudio",
+    "thumbnail_url": "",
+    "seed_key": "anime_builtin_1",
+    "design_json": {
+      "title": "Naruto Uzumaki Edition",
+      "style": "color_rgb565",
+      "background": 64800,
+      "elements": [
+        {
+          "t": "geometry",
+          "x": 5,
+          "y": 5,
+          "w": 310,
+          "h": 230,
+          "c": 0,
+          "v": "",
+          "s": 1,
+          "g": "rect",
+          "f": false
+        },
+        {
+          "t": "geometry",
+          "x": 9,
+          "y": 9,
+          "w": 302,
+          "h": 222,
+          "c": 0,
+          "v": "",
+          "s": 1,
+          "g": "rect",
+          "f": false
+        },
+        {
+          "t": "text",
+          "x": 18,
+          "y": 18,
+          "w": 270,
+          "h": 12,
+          "c": 0,
+          "v": "NARUTO #001 UZUMAKI #007",
+          "s": 1
+        },
+        {
+          "t": "geometry",
+          "x": 14,
+          "y": 38,
+          "w": 205,
+          "h": 86,
+          "c": 0,
+          "v": "",
+          "s": 1,
+          "g": "rect",
+          "f": false
+        },
+        {
+          "t": "clock",
+          "x": 20,
+          "y": 56,
+          "w": 185,
+          "h": 45,
+          "c": 0,
+          "v": "@T",
+          "s": 5
+        },
+        {
+          "t": "calendar",
+          "x": 20,
+          "y": 111,
+          "w": 180,
+          "h": 16,
+          "c": 0,
+          "v": "@d/@M/@y",
+          "s": 2
+        },
+        {
+          "t": "geometry",
+          "x": 14,
+          "y": 143,
+          "w": 205,
+          "h": 1,
+          "c": 0,
+          "v": "",
+          "s": 1,
+          "g": "rect",
+          "f": true
+        },
+        {
+          "t": "text",
+          "x": 18,
+          "y": 155,
+          "w": 204,
+          "h": 20,
+          "c": 0,
+          "v": "LV. 70 CHAKRA 150/150",
+          "s": 1
+        },
+        {
+          "t": "text",
+          "x": 18,
+          "y": 183,
+          "w": 190,
+          "h": 12,
+          "c": 0,
+          "v": "BAT 98% 28C",
+          "s": 1
+        },
+        {
+          "t": "bitmap",
+          "x": 254,
+          "y": 82,
+          "w": 48,
+          "h": 64,
+          "c": 0,
+          "v": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000003cf1e1e3c0003cf1e1e3c0001e78f0f1e0001e78f0f1e0001e78f0f1e0000f3c7878f0000f3cfff8f0000f3dfff8f000079ffffc7800079ffffc7800079ffffc780003dffffe3c0003dffffe3c00007fffffc000003ffffe0000003ffffe0000003ffffe0000003ffffe0000007fffff0000003ffffe0000003e7f3e0000003e7f3e000003fffffff000003ffffe0000001ffffc0000001ffffc000003fffffff0000007c1f000000007fff000000001ffc0000003fcff9ff0000000080000000000000000000000080000000001ffc000000007fff00000000ffff80000003ffffe0000003ffffe0000007fffff000000ffffff800000ffffff800000ffffff800000ffffff800001ffffffc00000ffffff800000ffffff800000ffffff800000ffffff8000007fffff0000003ffffe0000003ffffe0000000ffff80000000ffffc0000001dffce000000380807000000700003800",
+          "s": 1
+        }
+      ]
+    },
+    "likes": 0,
+    "timestamp": "2026-10-19T08:00:00Z"
+  },
+  {
+    "author": "AnimeStudio",
+    "thumbnail_url": "",
+    "seed_key": "anime_builtin_2",
+    "design_json": {
+      "title": "Jujutsu Kaisen - Gojo Satoru",
+      "style": "color_rgb565",
+      "background": 4265,
+      "elements": [
+        {
+          "t": "geometry",
+          "x": 5,
+          "y": 5,
+          "w": 310,
+          "h": 230,
+          "c": 65535,
+          "v": "",
+          "s": 1,
+          "g": "roundrect",
+          "f": false
+        },
+        {
+          "t": "geometry",
+          "x": 9,
+          "y": 9,
+          "w": 302,
+          "h": 222,
+          "c": 65535,
+          "v": "",
+          "s": 1,
+          "g": "roundrect",
+          "f": false
+        },
+        {
+          "t": "text",
+          "x": 18,
+          "y": 18,
+          "w": 270,
+          "h": 12,
+          "c": 65535,
+          "v": "GOJO SATORU #001",
+          "s": 1
+        },
+        {
+          "t": "geometry",
+          "x": 14,
+          "y": 38,
+          "w": 205,
+          "h": 86,
+          "c": 65535,
+          "v": "",
+          "s": 1,
+          "g": "roundrect",
+          "f": false
+        },
+        {
+          "t": "clock",
+          "x": 20,
+          "y": 56,
+          "w": 185,
+          "h": 45,
+          "c": 65535,
+          "v": "@T",
+          "s": 5
+        },
+        {
+          "t": "calendar",
+          "x": 20,
+          "y": 111,
+          "w": 180,
+          "h": 16,
+          "c": 65535,
+          "v": "@d/@M/@y",
+          "s": 2
+        },
+        {
+          "t": "geometry",
+          "x": 14,
+          "y": 143,
+          "w": 205,
+          "h": 1,
+          "c": 65535,
+          "v": "",
+          "s": 1,
+          "g": "rect",
+          "f": true
+        },
+        {
+          "t": "text",
+          "x": 18,
+          "y": 155,
+          "w": 204,
+          "h": 20,
+          "c": 65535,
+          "v": "GRADE: SPECIAL CHAO 99%",
+          "s": 1
+        },
+        {
+          "t": "text",
+          "x": 18,
+          "y": 183,
+          "w": 190,
+          "h": 12,
+          "c": 65535,
+          "v": "BAT 98% 28C",
+          "s": 1
+        },
+        {
+          "t": "bitmap",
+          "x": 254,
+          "y": 82,
+          "w": 48,
+          "h": 64,
+          "c": 65535,
+          "v": "00000000000000000000000000000000000001e3ffc7f80001e3ffc7f80000f3dfe7bc0000f1ffe3fc0000f1ffe3fc000079fef3fc000079eff3de00003cfff3de00003cff79fe00003cf7f9ef00001efffdef00001efffdef00001e7fffff00000f7ffff780000ffffff7800001ffffc0000001ffffc0000003ffffe0000003ffffe0000003ffffe0000007fffff0000007fffff0000007fffff0000007fffff0000007fffff0000007fffff0000003ffffe0000003ffffe0000001ffffc0000001ffffc0000000ffff800000007c1f000000007fff000000001ffc000000000ff8000300000080000600000000000c00000080001800001ffc001800007fff00300000ffff80600003ffffe0c00003ffffe1800007fffff300000ffffffe00000ffffffe00000ffffffc00000ffffff800001ffffffc00000ffffff800000ffffff800000ffffff800000ffffff8000007fffff0000003ffffe0000003ffffe0000000ffff80000000ffffc0000001dffce000000380807000000700003800",
+          "s": 1
+        }
+      ]
+    },
+    "likes": 0,
+    "timestamp": "2026-10-19T08:00:00Z"
+  },
+  {
+    "author": "AnimeStudio",
+    "thumbnail_url": "",
+    "seed_key": "anime_builtin_3",
+    "design_json": {
+      "title": "Phàm Nhân Tu Tiên - Hàn Lập",
+      "style": "color_rgb565",
+      "background": 2693,
+      "elements": [
+        {
+          "t": "geometry",
+          "x": 5,
+          "y": 5,
+          "w": 310,
+          "h": 230,
+          "c": 65535,
+          "v": "",
+          "s": 1,
+          "g": "roundrect",
+          "f": false
+        },
+        {
+          "t": "geometry",
+          "x": 9,
+          "y": 9,
+          "w": 302,
+          "h": 222,
+          "c": 65535,
+          "v": "",
+          "s": 1,
+          "g": "roundrect",
+          "f": false
+        },
+        {
+          "t": "text",
+          "x": 18,
+          "y": 18,
+          "w": 270,
+          "h": 12,
+          "c": 65535,
+          "v": "HAN LI #001",
+          "s": 1
+        },
+        {
+          "t": "geometry",
+          "x": 14,
+          "y": 38,
+          "w": 205,
+          "h": 86,
+          "c": 65535,
+          "v": "",
+          "s": 1,
+          "g": "roundrect",
+          "f": false
+        },
+        {
+          "t": "clock",
+          "x": 20,
+          "y": 56,
+          "w": 185,
+          "h": 45,
+          "c": 65535,
+          "v": "@T",
+          "s": 5
+        },
+        {
+          "t": "calendar",
+          "x": 20,
+          "y": 111,
+          "w": 180,
+          "h": 16,
+          "c": 65535,
+          "v": "@d/@M/@y",
+          "s": 2
+        },
+        {
+          "t": "geometry",
+          "x": 14,
+          "y": 143,
+          "w": 205,
+          "h": 1,
+          "c": 65535,
+          "v": "",
+          "s": 1,
+          "g": "rect",
+          "f": true
+        },
+        {
+          "t": "text",
+          "x": 18,
+          "y": 155,
+          "w": 204,
+          "h": 20,
+          "c": 65535,
+          "v": "LEVEL: DEITY TRANS (Hóa Thần Kỳ)",
+          "s": 1
+        },
+        {
+          "t": "text",
+          "x": 18,
+          "y": 183,
+          "w": 190,
+          "h": 12,
+          "c": 65535,
+          "v": "BAT 98% 28C",
+          "s": 1
+        },
+        {
+          "t": "bitmap",
+          "x": 254,
+          "y": 82,
+          "w": 48,
+          "h": 64,
+          "c": 65535,
+          "v": "000000800000000003e00000000007f00000000007f0000000000ff8000000000ff8000000000ff8000000000ff8000000001ffc000000000ff8000000000ff8000000000ff8000000000ff8000000000ff800000007fffff80000007fff000000007fff00000000ffff80000001ffffc0000001ffffc0000003ffffe0000003ffffe0000003ffffe0000003ffffe0000003ffffe0000007fffff0000003ffffe0000003e7f3e0000003e7f3e0000003ffffe0000003ffffe0000001ffffc0000001ffffc0000000ffff800000007c1f000000007fff000000001ffc000000000ff8001000000080007c0000000000fe0000008000fe00001ffc00fe00007fff01ff0000ffff80fe0003ffffe0fe0003ffffe0fe0007fffff0fc000ffffff990000ffffff980000ffffffb00000ffffffe00001ffffffc00000ffffff800000ffffffc00000ffffffe00000ffffffe00000ffffffe00001fffffe700003bffffe3800038ffff83800038ffffc3800071dffce1c000e3808070e000e7000038e0",
+          "s": 1
+        }
+      ]
+    },
+    "likes": 0,
+    "timestamp": "2026-10-19T08:00:00Z"
+  },
+  {
+    "author": "AnimeStudio",
+    "thumbnail_url": "",
+    "seed_key": "anime_builtin_4",
+    "design_json": {
+      "title": "Tiên Nghịch - Vương Lâm",
+      "style": "color_rgb565",
+      "background": 18432,
+      "elements": [
+        {
+          "t": "geometry",
+          "x": 5,
+          "y": 5,
+          "w": 310,
+          "h": 230,
+          "c": 65535,
+          "v": "",
+          "s": 1,
+          "g": "roundrect",
+          "f": false
+        },
+        {
+          "t": "geometry",
+          "x": 9,
+          "y": 9,
+          "w": 302,
+          "h": 222,
+          "c": 65535,
+          "v": "",
+          "s": 1,
+          "g": "roundrect",
+          "f": false
+        },
+        {
+          "t": "text",
+          "x": 18,
+          "y": 18,
+          "w": 270,
+          "h": 12,
+          "c": 65535,
+          "v": "WANG LIN #001",
+          "s": 1
+        },
+        {
+          "t": "geometry",
+          "x": 14,
+          "y": 38,
+          "w": 205,
+          "h": 86,
+          "c": 65535,
+          "v": "",
+          "s": 1,
+          "g": "roundrect",
+          "f": false
+        },
+        {
+          "t": "clock",
+          "x": 20,
+          "y": 56,
+          "w": 185,
+          "h": 45,
+          "c": 65535,
+          "v": "@T",
+          "s": 5
+        },
+        {
+          "t": "calendar",
+          "x": 20,
+          "y": 111,
+          "w": 180,
+          "h": 16,
+          "c": 65535,
+          "v": "@d/@M/@y",
+          "s": 2
+        },
+        {
+          "t": "geometry",
+          "x": 14,
+          "y": 143,
+          "w": 205,
+          "h": 1,
+          "c": 65535,
+          "v": "",
+          "s": 1,
+          "g": "rect",
+          "f": true
+        },
+        {
+          "t": "text",
+          "x": 18,
+          "y": 155,
+          "w": 204,
+          "h": 20,
+          "c": 65535,
+          "v": "LEVEL: ASCENDANT (Toàn Anh/Hóa Thần)",
+          "s": 1
+        },
+        {
+          "t": "text",
+          "x": 18,
+          "y": 183,
+          "w": 190,
+          "h": 12,
+          "c": 65535,
+          "v": "BAT 98% 28C",
+          "s": 1
+        },
+        {
+          "t": "bitmap",
+          "x": 254,
+          "y": 82,
+          "w": 48,
+          "h": 64,
+          "c": 65535,
+          "v": "00e71c73800000e71c73800000738e39c00000738e39c0000039c71ce0000039c71ce0000039c71ce000001ce38e7000001ce38e7000001ce38e7000000e71c73800000e71c73800000738e39c0000073ffb9c0000001ffc000000007fff000000007fff00000000ffff80000007ffffdc000007ffffdc000007fffffc000007fffffc00000ffffffc00000fffffee00000fffffee00000ffffffe00000fffffee00000fe7f3ee00000fe7f3ee00000fffffee00001fffffee00001dffffc700001dffffc700001cffff8700001c7c1f0700001c7fff0700001c1ffc070000380ff8070000380080070000380000038000380080038000381ffc038000387fff03800038ffff83800073ffffe3800073ffffe3800077fffff380007ffffff9c0007ffffffdc0007ffffffdc0007fffffffc0007fffffffc000ffffffffc000ffffffffc000fffffffbc000fffffffbe00077fffff1e000e3ffffe0e000e3ffffe0e001c0ffff80f001c0ffffc0700381dffce03803838080703807070000381c",
+          "s": 1
+        }
+      ]
+    },
+    "likes": 0,
+    "timestamp": "2026-10-19T08:00:00Z"
   }
 ]

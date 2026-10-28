@@ -1,5 +1,6 @@
 import "package:shared_preferences/shared_preferences.dart";
 import "api_client.dart";
+import "../auth/google_auth_service.dart";
 
 /// Auth API - Dang ky / Dang nhap / Lay thong tin user.
 class AuthApi {
@@ -35,14 +36,54 @@ class AuthApi {
     return data;
   }
 
+  /// Doi Google ID token lay JWT cua ung dung (dang ky neu chua co tai khoan).
+  static Future<Map<String, dynamic>> loginWithGoogle(String idToken) async {
+    final data = await ApiClient.post("$_base/google", {
+      "id_token": idToken,
+    }, auth: false);
+    await _saveSession(data);
+    return data;
+  }
+
   /// Lay thong tin user dang dang nhap.
   static Future<Map<String, dynamic>> me() async {
     return await ApiClient.get("$_base/me");
   }
 
+  static Future<void> changePassword({
+    required String oldPassword,
+    required String newPassword,
+  }) async {
+    await ApiClient.post("$_base/change-password", {
+      "old_password": oldPassword,
+      "new_password": newPassword,
+    });
+  }
+
+  static Future<bool> verifySession() async {
+    if (!await ApiClient.hasToken()) return false;
+    try {
+      final result = await ApiClient.get(
+        "$_base/verify-token",
+        timeout: const Duration(seconds: 5),
+      );
+      if (result is Map && result["valid"] == true) return true;
+      await ApiClient.clearToken();
+      return false;
+    } on ApiException catch (error) {
+      if (error.statusCode == 401 || error.statusCode == 404) {
+        await ApiClient.clearToken();
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Dang xuat: xoa token local.
   static Future<void> logout() async {
     await ApiClient.clearToken();
+    await GoogleAuthService.signOutIfInitialized();
   }
 
   static Future<void> _saveSession(Map<String, dynamic> data) async {

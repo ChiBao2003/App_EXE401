@@ -1,0 +1,201 @@
+--- before/src/Esp32Pj.ino
++++ after/src/Esp32Pj.ino
+@@ -62,6 +62,12 @@
+ String currentPomoAckId = "";
+ unsigned long lastPomoSendTime = 0;
+ const unsigned long POMO_ACK_TIMEOUT_MS = 8000;
++String pomoTransmitJson;
++size_t pomoTransmitOffset = 0;
++size_t pomoFragmentBytes = 16;
++uint8_t pomoTransferSequence = 0;
++uint8_t pomoFragmentIndex = 0;
++unsigned long lastPomoFragmentTime = 0;
+ 
+ // ==========================================
+ // BLE GATT SERVER (Kenh du lieu JSON)
+@@ -381,7 +387,8 @@
+ 
+   if (pomoQueueCount < 0 || pomoQueueCount > MAX_POMO_QUEUE) pomoQueueCount = 0;
+   if (pomoQueueHead < 0 || pomoQueueHead >= MAX_POMO_QUEUE) pomoQueueHead = 0;
+-  if (pomoQueueTail < 0 || pomoQueueTail >= MAX_POMO_QUEUE) pomoQueueTail = 0;
++  // Count is the commit marker; derive tail after an interrupted metadata write.
++  pomoQueueTail = (pomoQueueHead + pomoQueueCount) % MAX_POMO_QUEUE;
+ 
+   // Migration tu ban cu "pomo_pending" neu co
+   String oldPomo = prefs.getString("pomo_pending", "");
+@@ -414,13 +421,19 @@
+   snprintf(slotKey, sizeof(slotKey), "pq_item_%d", pomoQueueTail);
+   snprintf(idKey, sizeof(idKey), "pq_id_%d", pomoQueueTail);
+ 
+-  prefs.putString(slotKey, jsonStr);
+-  prefs.putString(idKey, sessionId);
+-
+-  pomoQueueTail = (pomoQueueTail + 1) % MAX_POMO_QUEUE;
+-  pomoQueueCount++;
+-  prefs.putInt("pq_cnt", pomoQueueCount);
+-  prefs.putInt("pq_tail", pomoQueueTail);
++  if (prefs.putString(slotKey, jsonStr) != strlen(jsonStr) ||
++      prefs.putString(idKey, sessionId) != strlen(sessionId)) {
++    Serial.println("[POMO_QUEUE] NVS payload write failed; not committed");
++    return false;
++  }
++  const int nextTail = (pomoQueueTail + 1) % MAX_POMO_QUEUE;
++  if (prefs.putInt("pq_tail", nextTail) != sizeof(int32_t) ||
++      prefs.putInt("pq_cnt", pomoQueueCount + 1) != sizeof(int32_t)) {
++    Serial.println("[POMO_QUEUE] NVS metadata write failed; not accepted");
++    return false;
++  }
++  pomoQueueTail = nextTail;
++  ++pomoQueueCount;
+ 
+   Serial.printf("[POMO_QUEUE] Da them phien %s vao FIFO. Count=%d, Tail=%d\n",
+     sessionId, pomoQueueCount, pomoQueueTail);
+@@ -430,10 +443,34 @@
+ void processPomodoroQueue() {
+   if (!bleClientConnected || pBleTxChar == nullptr) {
+     waitingForPomoAck = false;
++    pomoTransmitJson = "";
+     return;
+   }
+ 
+   if (pomoQueueCount <= 0) return;
++
++  // One fragment per loop tick: do not stall buttons, audio, or countdowns.
++  if (pomoTransmitJson.length() > 0) {
++    if (millis() - lastPomoFragmentTime < 15) return;
++    lastPomoFragmentTime = millis();
++    const size_t remaining = pomoTransmitJson.length() - pomoTransmitOffset;
++    const size_t length = remaining < pomoFragmentBytes ? remaining : pomoFragmentBytes;
++    uint8_t packet[184];
++    packet[0] = 0x1e;
++    packet[1] = pomoTransferSequence;
++    packet[2] = pomoFragmentIndex++;
++    packet[3] = (pomoTransmitJson.length() + pomoFragmentBytes - 1) / pomoFragmentBytes;
++    memcpy(packet + 4, pomoTransmitJson.c_str() + pomoTransmitOffset, length);
++    pBleTxChar->setValue(packet, length + 4);
++    pBleTxChar->notify();
++    pomoTransmitOffset += length;
++    if (pomoTransmitOffset == pomoTransmitJson.length()) {
++      pomoTransmitJson = "";
++      waitingForPomoAck = true;
++      lastPomoSendTime = millis();
++    }
++    return;
++  }
+ 
+   if (waitingForPomoAck) {
+     if (millis() - lastPomoSendTime > POMO_ACK_TIMEOUT_MS) {
+@@ -460,11 +497,28 @@
+   }
+ 
+   currentPomoAckId = itemId;
+-  waitingForPomoAck = true;
+-  lastPomoSendTime = millis();
+-
+-  pBleTxChar->setValue(itemJson.c_str());
+-  pBleTxChar->notify();
++  uint16_t peerMtu = 517;
++  const auto peers = pBleServer->getPeerDevices(false);
++  if (peers.empty()) return;
++  for (const auto& peer : peers) {
++    if (peer.second.mtu < peerMtu) peerMtu = peer.second.mtu;
++  }
++  if (peerMtu < 23) peerMtu = 23;
++  if (itemJson.length() <= peerMtu - 3) {
++    pBleTxChar->setValue(itemJson.c_str());
++    pBleTxChar->notify();
++    waitingForPomoAck = true;
++    lastPomoSendTime = millis();
++  } else {
++    // Four-byte framing header, leaving ATT's three-byte overhead intact.
++    pomoFragmentBytes = min((int)peerMtu - 7, 180);
++    pomoTransmitJson = itemJson;
++    pomoTransmitOffset = 0;
++    pomoFragmentIndex = 0;
++    ++pomoTransferSequence;
++    lastPomoFragmentTime = millis() - 15;
++    waitingForPomoAck = false;
++  }
+   Serial.printf("[POMO_QUEUE] Da gui session %s (count=%d). Cho ACK...\n",
+     currentPomoAckId.c_str(), pomoQueueCount);
+ }
+@@ -478,6 +532,7 @@
+ 
+   String expectedId = prefs.getString(idKey, "");
+   if (strlen(ackSessionId) > 0 && (expectedId == ackSessionId || expectedId == "legacy_pending")) {
++    pomoTransmitJson = "";
+     prefs.remove(slotKey);
+     prefs.remove(idKey);
+     pomoQueueHead = (pomoQueueHead + 1) % MAX_POMO_QUEUE;
+@@ -1678,33 +1733,38 @@
+     snprintf(endTimeStr, sizeof(endTimeStr), "2026-01-01T00:00:00");
+   }
+ 
+-  // Tao session_id on dinh, duy nhat xuyen suot ESP32 -> Flutter -> Backend
++  // Persist a device-scoped sequence: resetting a session or missing RTC must
++  // never reuse an ID and cause Flutter/backend to discard a new session.
++  const uint64_t sequence = prefs.getULong64("pomo_seq", 0) + 1;
++  if (prefs.putULong64("pomo_seq", sequence) != sizeof(uint64_t)) {
++    triggerNotification("LOI LUU PHIEN", "Khong ghi duoc session ID");
++    return;
++  }
+   char sessionId[48];
+-  if (pomoStartTimeStr[0] != '\0') {
+-    snprintf(sessionId, sizeof(sessionId), "pomo_%s_%d", pomoStartTimeStr, pomoSessionCount);
+-  } else {
+-    snprintf(sessionId, sizeof(sessionId), "pomo_%lu_%d", millis(), pomoSessionCount);
+-  }
+-
+-  char jsonBuf[450];
+-  snprintf(jsonBuf, sizeof(jsonBuf),
+-    "{\"mode\":\"pomodoro\",\"session_id\":\"%s\",\"task_type\":\"%s\",\"work_min\":%d,\"break_min\":%d,"
+-    "\"pauses\":%d,\"completed\":%s,\"session\":%d,"
+-    "\"start_time\":\"%s\",\"end_time\":\"%s\",\"temperature\":%d}",
+-    sessionId,
+-    current_pomo_task_type.c_str(),
+-    pomoWorkDuration / 60,
+-    pomoBreakDuration / 60,
+-    pauseCount,
+-    completed ? "true" : "false",
+-    pomoSessionCount,
+-    pomoStartTimeStr[0] != '\0' ? pomoStartTimeStr : endTimeStr,
+-    endTimeStr,
+-    temp
+-  );
++  snprintf(sessionId, sizeof(sessionId), "pomo_%012llx_%llu",
++           (unsigned long long)ESP.getEfuseMac(), (unsigned long long)sequence);
++
++  StaticJsonDocument<1024> packet;
++  packet["mode"] = "pomodoro";
++  packet["session_id"] = sessionId;
++  packet["task_type"] = current_pomo_task_type;
++  packet["work_min"] = pomoWorkDuration / 60;
++  packet["break_min"] = pomoBreakDuration / 60;
++  packet["pauses"] = pauseCount;
++  packet["completed"] = completed;
++  packet["session"] = pomoSessionCount;
++  packet["start_time"] = pomoStartTimeStr[0] != '\0' ? pomoStartTimeStr : endTimeStr;
++  packet["end_time"] = endTimeStr;
++  packet["temperature"] = temp;
++  if (packet.overflowed()) {
++    triggerNotification("LOI LUU PHIEN", "Du lieu Pomodoro qua dai");
++    return;
++  }
++  String jsonPayload;
++  serializeJson(packet, jsonPayload);
+ 
+   // Enqueue vao hang doi FIFO NVS (toi da 5 phien, khong ghi de phien chua ACK)
+-  bool enqueued = enqueuePomodoro(jsonBuf, sessionId);
++  bool enqueued = enqueuePomodoro(jsonPayload.c_str(), sessionId);
+   if (!enqueued) {
+     triggerNotification("BO NHO DAY", "Khong the luu them Pomodoro");
+   }
+@@ -1718,7 +1778,7 @@
+   startBeep(2, 100, 1800);
+ 
+   // Gửi dữ liệu về App TRƯỚC khi reset (completed = false vì bị ngắt)
+-  if (pomoRunning || pomoTime < pomoInitialTime) {
++  if (pomoPhase == PHASE_WORK && (pomoRunning || pomoTime < pomoInitialTime)) {
+     sendPomodoroData(false);
+   }
+ 

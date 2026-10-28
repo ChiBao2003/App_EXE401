@@ -15,3 +15,4 @@ class ScheduleEntity:
     label: str             # Nhãn mô tả lịch
     is_active: bool = True
     id: Optional[str] = None
+    user_id: Optional[str] = None

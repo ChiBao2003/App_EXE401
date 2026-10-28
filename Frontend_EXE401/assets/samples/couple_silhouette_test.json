@@ -1,0 +1,44 @@
+{
+  "title": "Couple Silhouette - BLE Test",
+  "background": "0x4800",
+  "elements": [
+    {
+      "t": "geometry",
+      "g": "roundrect",
+      "x": 8,
+      "y": 8,
+      "w": 304,
+      "h": 224,
+      "c": 65535,
+      "f": false
+    },
+    {
+      "t": "text",
+      "v": "LOVE",
+      "x": 120,
+      "y": 16,
+      "w": 90,
+      "h": 24,
+      "s": 3,
+      "c": 65535
+    },
+    {
+      "t": "bitmap",
+      "x": 100,
+      "y": 54,
+      "w": 120,
+      "h": 120,
+      "c": 65535,
+      "v": "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000040000000010000000000000000000ffe0000003ff800000000000000003fff800000fffe00000000000000007fffc00001ffff0000000000000001fffff00007ffffc000000000000003fffff8000fffffe000000000000007fffffc001ffffff000000000000007fffffc001ffffff00000000000000ffffffe003ffffff80000000000001fffffff007ffffffc0000000000001fffffff007ffffffc0000000000003fffffff80fffffffe0000000000003fffffff80fffffffe0000000000007fffffff81ffffffff0000000000007fffffff81ffffffff0000000000007fffffff81ffffffff000000000000ffffffff81ffffffff800000000000ffffffff81ffffffff800000000000ffffffff81ffffffff800000000000ffffffff81ffffffff800000000000ffffffff81ffffffff800000000000ffffffff81ffffffff800000000000ffffffff81ffffffff800000000001ffffffff81ffffffffc00000000000ffffffff81ffffffff800000000000ffffffff81ffffffff800000000000ffffffff81ffffffff800000000000ffffffff81ffffffff800000000000ffffffff81ffffffff800000000000ffffffff81ffffffff800000000000ffffffff81ffffffff8000000000007fffffff81ffffffff0000000000007fffffff81ffffffff0000000000007fffffffc1ffffffff0000000000003fffffff80fffffffe0000000000003fffffff80fffffffe0000000000001fffffff007ffffffc0000000000001fffffff007ffffffc0000000000000ffffffe003ffffff800000000000007fffffc001ffffff000000000000007fffffc001ffffff000000000000003fffff8000fffffe000000000000001fffff00007ffffc0000000000000007fffc00001ffff00000000000000003fff800000fffe00000000000000001ffe0000003ffc0000000000000007ffc000000001fff00000000000003ffff80000000ffffe000000000000fffffe0000003fffff800000000003ffffff800000ffffffe0000000000fffffffe00003fffffff8000000001ffffffff00007fffffffc000000003ffffffff8000ffffffffe000000007ffffffffc001fffffffff00000000fffffffffe003fffffffff80000001ffffffffff007fffffffffc0000003ffffffffff80ffffffffffe0000007ffffffffffc1fffffffffff000000fffffffffffe3fffffffffff800000fffffffffffe3fffffffffff800001ffffffffffff7fffffffffffc00003ffffffffffffffffffffffffe00003ffffffffffffffffffffffffe00007fffffffffffffffffffffffff00007fffffffffffffffffffffffff0000ffffffffffffffffffffffffff8000ffffffffffffffffffffffffff8000ffffffffffffffffffffffffff8001ffffffffffffffffffffffffffc001ffffffffffffffffffffffffffc001ffffffffffffffffffffffffffc003ffffffffffffffffffffffffffe003ffffffffffffffffffffffffffe003ffffffffffffffffffffffffffe003ffffffffffffffffffffffffffe007fffffffffffffffffffffffffff007fffffffffffffffffffffffffff007fffffffffffffffffffffffffff007fffffffffffffffffffffffffff007fffffffffffffffffffffffffff007fffffffffffffffffffffffffff007fffffffffffffffffffffffffff007fffffffffffffffffffffffffff007fffffffffffffffffffffffffff00ffffffffffffffffffffffffffff807fffffffffffffffffffffffffff007fffffffffffffffffffffffffff007fffffffffffffffffffffffffff007fffffffffffffffffffffffffff007fffffffffffffffffffffffffff007fffffffffffffffffffffffffff007fffffffffffffffffffffffffff007fffffffffffffffffffffffffff007fffffffffffffffffffffffffff003ffffffffffffffffffffffffffe003ffffffffffffffffffffffffffe003ffffffffffffffffffffffffffe003ffffffffffffffffffffffffffe001ffffffffffffffffffffffffffc001ffffffffffffffffffffffffffc001ffffffffffffffffffffffffffc000ffffffffffffffffffffffffff8000ffffffffffffffffffffffffff8000ffffffffffffffffffffffffff80007fffffffffffffffffffffffff00007fffffffffffffffffffffffff00"
+    },
+    {
+      "t": "clock",
+      "x": 110,
+      "y": 193,
+      "w": 110,
+      "h": 28,
+      "s": 2,
+      "c": 65535
+    }
+  ]
+}

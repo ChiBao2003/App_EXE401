@@ -1,6 +1,7 @@
 /// features/market/presentation/providers/market_provider.dart
 /// Tầng Presentation - Provider quản lý state cho trang Chợ hiệu ứng.
 /// Không chứa bất kỳ code HTTP hay logic nghiệp vụ nào.
+library;
 
 import 'package:flutter/foundation.dart';
 import '../../domain/entities/market_item.dart';
@@ -14,7 +15,7 @@ class MarketProvider extends ChangeNotifier {
   final MarketRepository _repository;
 
   MarketProvider({MarketRepository? repository})
-      : _repository = repository ?? MarketRepositoryImpl();
+    : _repository = repository ?? MarketRepositoryImpl();
 
   // ============================================================
   // State
@@ -52,24 +53,29 @@ class MarketProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Like / Thích thiết kế
+  void toggleLike(String id) {
+    final index = _items.indexWhere((it) => it.id == id);
+    if (index != -1) {
+      final current = _items[index];
+      _items[index] = current.copyWith(likes: current.likes + 1);
+      notifyListeners();
+    }
+  }
+
+  /// Cho phép inject items trực tiếp (ví dụ test hoặc seed preview)
+  void setItemsForTesting(List<MarketItem> items) {
+    _items = List.from(items);
+    _status = MarketStatus.loaded;
+    _errorMessage = '';
+    notifyListeners();
+  }
+
   /// Tải thêm mẫu thiết kế (mock thêm item)
   Future<void> loadMore() async {
     if (_status != MarketStatus.loaded) return;
 
-    final mockItems = List.generate(
-      10,
-      (i) => MarketItem(
-        id: 'mock_${_items.length + i}',
-        author: ['Dev_${i + 1}', 'Maker_${i + 1}'][i % 2],
-        timestamp: '2026-08-09 ${(8 + i).toString().padLeft(2, '0')}:00:00',
-        thumbnailUrl: 'images/market_${(i % 4) + 1}.png',
-        designJson: const {},
-        likes: (i + 1) * 10,
-      ),
-    );
-
-    _items.addAll(mockItems);
-    notifyListeners();
+    await fetchTemplates();
   }
 
   /// Upload mẫu thiết kế mới

@@ -9,8 +9,8 @@ class GetAllSchedulesQuery:
     def __init__(self, repository: AbstractScheduleRepository):
         self._repo = repository
 
-    async def execute(self) -> List[dict]:
-        entities = await self._repo.get_all()
+    async def execute(self, user_id: str) -> List[dict]:
+        entities = await self._repo.get_all(user_id=user_id)
         return [
             {
                 "_id": e.id,

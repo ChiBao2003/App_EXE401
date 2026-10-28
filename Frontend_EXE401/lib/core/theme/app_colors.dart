@@ -49,4 +49,30 @@ class AppColors {
   // Slider
   static const Color sliderActive = Color(0xFF7C3AED);
   static const Color sliderInactive = Color(0xFFE0E0E0);
+
+  // ─── Aether Synapse (Stitch Project 10749545399411306725) ───
+  static const Color stitchSurface = Color(0xFF10131A);
+  static const Color stitchSurfaceLowest = Color(0xFF0B0E15);
+  static const Color stitchSurfaceLow = Color(0xFF191B23);
+  static const Color stitchSurfaceContainer = Color(0xFF1D1F27);
+  static const Color stitchSurfaceHigh = Color(0xFF272A32);
+  static const Color stitchSurfaceHighest = Color(0xFF32353D);
+  static const Color stitchSurfaceBright = Color(0xFF363941);
+
+  static const Color stitchPrimary = Color(0xFFCDBDFF);
+  static const Color stitchPrimaryContainer = Color(0xFF7C4DFF);
+  static const Color stitchOnPrimaryContainer = Color(0xFFFCF6FF);
+
+  static const Color stitchSecondary = Color(0xFFBDF4FF);
+  static const Color stitchSecondaryContainer = Color(0xFF00E3FD);
+
+  static const Color stitchTertiary = Color(0xFF4EDEA3);
+  static const Color stitchTertiaryContainer = Color(0xFF008259);
+
+  static const Color stitchOnSurface = Color(0xFFE1E2EC);
+  static const Color stitchOnSurfaceVariant = Color(0xFFCAC3D8);
+  static const Color stitchOutline = Color(0xFF948EA1);
+  static const Color stitchOutlineVariant = Color(0xFF494455);
+  static const Color stitchError = Color(0xFFFFB4AB);
+  static const Color stitchErrorContainer = Color(0xFF93000A);
 }

@@ -3,18 +3,19 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'ble_json_assembler.dart';
 
 // ─── UUIDs khớp với firmware ESP32 ──────────────────────────────
 const String _kServiceUuid = '0000ffe0-0000-1000-8000-00805f9b34fb';
-const String _kRxUuid      = '0000ffe1-0000-1000-8000-00805f9b34fb'; // App → ESP32
-const String _kTxUuid      = '0000ffe2-0000-1000-8000-00805f9b34fb'; // ESP32 → App
+const String _kRxUuid = '0000ffe1-0000-1000-8000-00805f9b34fb'; // App → ESP32
+const String _kTxUuid = '0000ffe2-0000-1000-8000-00805f9b34fb'; // ESP32 → App
 
 enum BleConnectionState { disconnected, scanning, connecting, connected }
 
 /// Stub để home_screen.dart không bị lỗi
 class BleDevice {
   final String platformName;
-  const BleDevice({this.platformName = 'Eink Clock'});
+  const BleDevice({this.platformName = 'ESP32_Pomodoro_Data'});
 }
 
 /// BleService — BLE GATT client kết nối với ESP32.
@@ -28,6 +29,7 @@ class BleService extends ChangeNotifier {
   StreamSubscription? _scanSubscription;
   StreamSubscription? _notifySubscription;
   StreamSubscription? _connSubscription;
+  final _assembler = BleJsonAssembler();
 
   // Stream cho data nhận từ ESP32
   final _dataController = StreamController<String>.broadcast();
@@ -35,7 +37,8 @@ class BleService extends ChangeNotifier {
 
   BleConnectionState get state => _state;
   bool get isConnected => _state == BleConnectionState.connected;
-  bool get isScanning  => _state == BleConnectionState.scanning;
+  bool get isScanning => _state == BleConnectionState.scanning;
+  BluetoothCharacteristic? get txChar => _txChar;
 
   void _setState(BleConnectionState s) {
     _state = s;
@@ -63,7 +66,7 @@ class BleService extends ChangeNotifier {
       _scanSubscription = FlutterBluePlus.scanResults.listen((results) {
         for (final r in results) {
           final name = r.device.platformName;
-          if (name.contains('ESP32_Pomodoro') || name.contains('Eink')) {
+          if (name.contains('ESP32_Pomodoro') || name.contains('TFT LCD')) {
             stopScan();
             _connect(r.device);
             break;
@@ -93,7 +96,13 @@ class BleService extends ChangeNotifier {
   Future<void> _connect(BluetoothDevice dev) async {
     _setState(BleConnectionState.connecting);
     try {
-      await dev.connect(autoConnect: false, timeout: const Duration(seconds: 10));
+      await dev.connect(
+        autoConnect: false,
+        timeout: const Duration(seconds: 10),
+      );
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        await dev.requestMtu(517);
+      }
       _btDevice = dev;
       device = BleDevice(platformName: dev.platformName);
 
@@ -117,27 +126,41 @@ class BleService extends ChangeNotifier {
   Future<void> _discoverServices(BluetoothDevice dev) async {
     final services = await dev.discoverServices();
     for (final svc in services) {
-      if (svc.uuid.toString().toLowerCase().contains('ffe0')) {
+      if (svc.uuid.toString().toLowerCase().contains('ffe0') ||
+          svc.uuid.toString().toLowerCase() == _kServiceUuid.toLowerCase()) {
         for (final c in svc.characteristics) {
           final uuid = c.uuid.toString().toLowerCase();
-          if (uuid.contains('ffe1')) _rxChar = c; // Gửi lệnh đi
-          if (uuid.contains('ffe2')) {             // Nhận notify
+          if (uuid.contains('ffe1') || uuid == _kRxUuid.toLowerCase()) {
+            _rxChar = c; // Gửi lệnh đi
+          }
+          if (uuid.contains('ffe2') || uuid == _kTxUuid.toLowerCase()) {
+            // Nhận notify
             _txChar = c;
+            _notifySubscription = c.onValueReceived.listen(
+              (bytes) {
+                if (bytes.isEmpty) return;
+                try {
+                  final str = _assembler.add(bytes);
+                  if (str == null) return;
+                  debugPrint('[BLE RX] $str');
+                  _dataController.add(str);
+                } catch (e) {
+                  debugPrint('[BLE RX] decode error: $e');
+                }
+              },
+              onError: (Object error, StackTrace stack) {
+                _assembler.reset();
+                _dataController.addError(error, stack);
+              },
+            );
             await c.setNotifyValue(true);
-            _notifySubscription = c.lastValueStream.listen((bytes) {
-              if (bytes.isEmpty) return;
-              try {
-                final str = utf8.decode(bytes, allowMalformed: true);
-                debugPrint('[BLE RX] $str');
-                _dataController.add(str);
-              } catch (e) {
-                debugPrint('[BLE RX] decode error: $e');
-              }
-            });
           }
         }
         break;
       }
+    }
+    if (_rxChar == null || _txChar == null) {
+      throw StateError('Missing ESP32 Pomodoro RX/TX characteristics');
     }
   }
 
@@ -146,7 +169,12 @@ class BleService extends ChangeNotifier {
     if (_rxChar == null || !isConnected) return false;
     try {
       final bytes = utf8.encode(jsonEncode(payload));
-      await _rxChar!.write(bytes, withoutResponse: true);
+      if (bytes.length > 512) return false;
+      await _rxChar!.write(
+        bytes,
+        withoutResponse: false,
+        allowLongWrite: bytes.length > (_btDevice?.mtuNow ?? 23) - 3,
+      );
       return true;
     } catch (e) {
       debugPrint('[BLE TX] Lỗi gửi: $e');
@@ -159,7 +187,9 @@ class BleService extends ChangeNotifier {
     try {
       await _rxChar!.write(data, withoutResponse: true);
       return true;
-    } catch (e) { return false; }
+    } catch (e) {
+      return false;
+    }
   }
 
   Future<bool> syncTime() async {
@@ -167,9 +197,13 @@ class BleService extends ChangeNotifier {
     return sendJson({
       'cmd': 'SET_TIME',
       'params': {
-        'year': now.year, 'month': now.month, 'day': now.day,
-        'hour': now.hour, 'minute': now.minute, 'second': now.second,
-      }
+        'year': now.year,
+        'month': now.month,
+        'day': now.day,
+        'hour': now.hour,
+        'minute': now.minute,
+        'second': now.second,
+      },
     });
   }
 
@@ -182,6 +216,7 @@ class BleService extends ChangeNotifier {
   }
 
   void _cleanup() {
+    _assembler.reset();
     _notifySubscription?.cancel();
     _connSubscription?.cancel();
     _notifySubscription = null;

@@ -1,0 +1,115 @@
+{
+  "title": "Tiên Nghịch - Vương Lâm",
+  "style": "color_rgb565",
+  "background": 18432,
+  "elements": [
+    {
+      "t": "geometry",
+      "x": 5,
+      "y": 5,
+      "w": 310,
+      "h": 230,
+      "c": 65535,
+      "v": "",
+      "s": 1,
+      "g": "roundrect",
+      "f": false
+    },
+    {
+      "t": "geometry",
+      "x": 9,
+      "y": 9,
+      "w": 302,
+      "h": 222,
+      "c": 65535,
+      "v": "",
+      "s": 1,
+      "g": "roundrect",
+      "f": false
+    },
+    {
+      "t": "text",
+      "x": 18,
+      "y": 18,
+      "w": 270,
+      "h": 12,
+      "c": 65535,
+      "v": "WANG LIN #001",
+      "s": 1
+    },
+    {
+      "t": "geometry",
+      "x": 14,
+      "y": 38,
+      "w": 205,
+      "h": 86,
+      "c": 65535,
+      "v": "",
+      "s": 1,
+      "g": "roundrect",
+      "f": false
+    },
+    {
+      "t": "clock",
+      "x": 20,
+      "y": 56,
+      "w": 185,
+      "h": 45,
+      "c": 65535,
+      "v": "@T",
+      "s": 5
+    },
+    {
+      "t": "calendar",
+      "x": 20,
+      "y": 111,
+      "w": 180,
+      "h": 16,
+      "c": 65535,
+      "v": "@d/@M/@y",
+      "s": 2
+    },
+    {
+      "t": "geometry",
+      "x": 14,
+      "y": 143,
+      "w": 205,
+      "h": 1,
+      "c": 65535,
+      "v": "",
+      "s": 1,
+      "g": "rect",
+      "f": true
+    },
+    {
+      "t": "text",
+      "x": 18,
+      "y": 155,
+      "w": 204,
+      "h": 20,
+      "c": 65535,
+      "v": "LEVEL: ASCENDANT (Toàn Anh/Hóa Thần)",
+      "s": 1
+    },
+    {
+      "t": "text",
+      "x": 18,
+      "y": 183,
+      "w": 190,
+      "h": 12,
+      "c": 65535,
+      "v": "BAT 98% 28C",
+      "s": 1
+    },
+    {
+      "t": "bitmap",
+      "x": 254,
+      "y": 82,
+      "w": 48,
+      "h": 64,
+      "c": 65535,
+      "v": "00e71c73800000e71c73800000738e39c00000738e39c0000039c71ce0000039c71ce0000039c71ce000001ce38e7000001ce38e7000001ce38e7000000e71c73800000e71c73800000738e39c0000073ffb9c0000001ffc000000007fff000000007fff00000000ffff80000007ffffdc000007ffffdc000007fffffc000007fffffc00000ffffffc00000fffffee00000fffffee00000ffffffe00000fffffee00000fe7f3ee00000fe7f3ee00000fffffee00001fffffee00001dffffc700001dffffc700001cffff8700001c7c1f0700001c7fff0700001c1ffc070000380ff8070000380080070000380000038000380080038000381ffc038000387fff03800038ffff83800073ffffe3800073ffffe3800077fffff380007ffffff9c0007ffffffdc0007ffffffdc0007fffffffc0007fffffffc000ffffffffc000ffffffffc000fffffffbc000fffffffbe00077fffff1e000e3ffffe0e000e3ffffe0e001c0ffff80f001c0ffffc0700381dffce03803838080703807070000381c",
+      "s": 1
+    }
+  ]
+}

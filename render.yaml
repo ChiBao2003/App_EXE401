@@ -1,0 +1,27 @@
+# Render Blueprint: native Python runtime, no Docker.
+services:
+  - type: web
+    name: pomosmart-api
+    runtime: python
+    plan: free
+    rootDir: Backend_EXE401
+    buildCommand: pip install --no-cache-dir -r requirements-render.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health/ready
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+      - key: APP_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false
+      - key: MONGO_DB_NAME
+        value: Pomodoro_App
+      - key: DATABASE_NAME
+        value: Pomodoro_App
+      - key: SECRET_KEY
+        generateValue: true
+      - key: GOOGLE_WEB_CLIENT_ID
+        sync: false
+      - key: ENABLE_RAG
+        value: "false"

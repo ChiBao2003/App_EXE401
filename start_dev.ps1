@@ -4,8 +4,8 @@
 # ============================================================
 
 $adbPath = "$env:LOCALAPPDATA\Android\sdk\platform-tools\adb.exe"
-$phoneIp = "192.168.1.14"
-$phonePort = "43431"   # <- Cập nhật port debug từ Wireless Debugging
+$phoneIp = "10.10.117.19"
+$phonePort = "43001"   # <- Cập nhật port debug từ Wireless Debugging
 
 Write-Host "Khoi dong EXE401 Dev Environment..." -ForegroundColor Cyan
 

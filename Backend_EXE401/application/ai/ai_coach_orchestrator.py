@@ -405,21 +405,22 @@ class AICoachOrchestrator:
         watch_status: Dict[str, Any],
         chat_history: List[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        from application.ai.rag_service import RAGService
         from application.ai.feature_engine import FeatureEngine
         from application.ai.ranking_engine import CandidateGenerator, RankingEngine, ContextReRanker
         from datetime import datetime, timezone, timedelta
         
         # 1. RAG Context (graceful degradation - RÁG lỗi không làm crash AI Coach)
         rag_context = ""
-        try:
-            rag_svc = RAGService(api_key=self.api_key)
-            rag_context = await rag_svc.search_context(user_id=user_id, query=user_prompt)
-            if rag_context:
-                logger.info("[RAG] Found relevant context")
-        except Exception as e:
-            logger.warning(f"[RAG] Error (non-fatal, continuing without RAG): {repr(e)}")
-            rag_context = ""
+        if os.getenv("ENABLE_RAG", "true").lower() == "true":
+            try:
+                from application.ai.rag_service import RAGService
+                rag_svc = RAGService(api_key=self.api_key)
+                rag_context = await rag_svc.search_context(user_id=user_id, query=user_prompt)
+                if rag_context:
+                    logger.info("[RAG] Found relevant context")
+            except Exception as e:
+                logger.warning(f"[RAG] Error (non-fatal, continuing without RAG): {repr(e)}")
+                rag_context = ""
 
         # 2. Extract Features + Ranking (graceful degradation)
         from application.ai.time_window import build_time_context

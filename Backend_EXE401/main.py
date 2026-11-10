@@ -3,7 +3,7 @@ main.py - Entry Point cua Backend E-ink Clock
 Kien truc: Clean Architecture + CQRS + Repository Pattern
 """
 import logging
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 logging.basicConfig(
@@ -119,3 +119,16 @@ async def root():
         "version": "2.0.0",
         "features": ["Auth JWT", "Adaptive Pomodoro AI", "Burnout Detection", "Context Awareness", "Digital Wellbeing"],
     }
+
+
+@app.get("/health/ready", tags=["Health"])
+async def ready():
+    """Readiness check for Render: verify MongoDB is reachable."""
+    from core.database import get_database
+
+    try:
+        await get_database().command("ping")
+    except Exception:
+        logging.exception("MongoDB readiness check failed")
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    return {"status": "OK", "database": "reachable"}
